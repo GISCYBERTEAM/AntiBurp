@@ -1,0 +1,69 @@
+<!--
+  Copyright (C) 2026 GorillaHacker <gorillahacker@yandex.ru> https://t.me/gorillahacker
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as
+  published by the Free Software Foundation, either version 3 of the
+  License, or (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+-->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AntiBurp - Установка сертификата</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">AntiBurp</div>
+    <div class="actions">
+      <a href="/projects" class="btn">Проекты</a>
+      <a href="/ca/download" class="btn">Скачать сертификат</a>
+      <a href="/logout" class="btn">Выйти</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>Установка CA сертификата</h2>
+      <p class="muted">Скачайте сертификат и установите его в доверенные, чтобы браузер доверял HTTPS перехвату.</p>
+
+      <h3>macOS</h3>
+      <ol>
+        <li>Откройте «Связка ключей».</li>
+        <li>Импортируйте файл `antiburp-ca.pem` в «Системные».</li>
+        <li>Откройте сертификат, установите «Всегда доверять».</li>
+        <li>Перезапустите браузер.</li>
+      </ol>
+
+      <h3>Windows</h3>
+      <ol>
+        <li>Запустите `certmgr.msc`.</li>
+        <li>«Доверенные корневые центры сертификации» → «Сертификаты».</li>
+        <li>Импортируйте `antiburp-ca.pem`.</li>
+        <li>Перезапустите браузер.</li>
+      </ol>
+
+      <h3>Linux (Ubuntu/Debian)</h3>
+      <ol>
+        <li>Скопируйте файл в `/usr/local/share/ca-certificates/antiburp-ca.crt`.</li>
+        <li>Выполните `sudo update-ca-certificates`.</li>
+        <li>Перезапустите браузер.</li>
+      </ol>
+
+      <div class="alert">
+        Для сайтов с HSTS/Certificate Pinning перехват HTTPS может быть невозможен.
+      </div>
+    </section>
+  </main>
+</body>
+</html>

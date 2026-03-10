@@ -1,0 +1,131 @@
+<!--
+  Copyright (C) 2026 GorillaHacker <gorillahacker@yandex.ru> https://t.me/gorillahacker
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as
+  published by the Free Software Foundation, either version 3 of the
+  License, or (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+-->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AntiBurp - Проекты</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">AntiBurp</div>
+    <div class="actions">
+      <span class="chip">Пользователь: {{.User.Username}} ({{.User.Role}})</span>
+      <a href="/admin/users" class="btn">Пользователи</a>
+      <a href="/logout" class="btn">Выйти</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <div class="card-header">
+        <h2>Проекты</h2>
+        <button class="btn primary" id="projects-add">Добавить</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Название</th>
+            <th>Создатель</th>
+            <th>Доступ</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Projects}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td>{{.OwnerName}}</td>
+            <td>{{join .AccessList ", "}}</td>
+            <td class="row-actions">
+              <div class="row-actions-wrap">
+                <a class="btn" href="/projects/view?id={{.ID}}">Открыть</a>
+                <form method="post" action="/projects/delete">
+                  <input type="hidden" name="id" value="{{.ID}}" />
+                <button type="submit" class="btn danger" onclick="return confirm('Удалить проект?')">Удалить</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {{else}}
+          <tr>
+            <td colspan="4" class="muted">Проектов нет</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </section>
+
+    <div id="projects-modal" class="modal hidden">
+      <div class="modal-backdrop" data-close></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Создать проект</h3>
+          <button class="btn" data-close>Закрыть</button>
+        </div>
+        <form method="post" action="/projects/create" class="grid-2 modal-form modal-form-project">
+          <div>
+            <label>Название</label>
+            <input type="text" name="name" required />
+          </div>
+          <div>
+            <label>Доступ (логины через запятую)</label>
+            <input type="text" name="access" placeholder="user1, user2" />
+          </div>
+          <div class="actions modal-actions">
+            <button type="submit" class="btn primary">Создать</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-left">
+        <span>© 2026–<span id="footer-year"></span></span>
+        <span>Все права защищены</span>
+        <a class="footer-link" href="https://gorillahacker.pro" target="_blank" rel="noopener">GorillaHacker</a>
+        <span class="muted">Версия: 1.0.0</span>
+      </div>
+      <div class="footer-right">
+        <span>CPU приложения: <strong id="footer-cpu-app">-</strong></span>
+        <span>Свободно CPU: <strong id="footer-cpu-free">-</strong></span>
+        <span>ROM приложения: <strong id="footer-mem-app">-</strong></span>
+        <span>Свободно ROM: <strong id="footer-mem-free">-</strong></span>
+        <span>БД проекта: <strong id="footer-db-project">-</strong></span>
+        <span>БД всего: <strong id="footer-db-total">-</strong></span>
+        <span>Свободно диска: <strong id="footer-db-free">-</strong></span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/footer.js"></script>
+  <script>
+    const addBtn = document.getElementById("projects-add");
+    const modal = document.getElementById("projects-modal");
+    if (addBtn && modal) {
+      addBtn.addEventListener("click", () => modal.classList.remove("hidden"));
+      modal.querySelectorAll("[data-close]").forEach((el) => {
+        el.addEventListener("click", () => modal.classList.add("hidden"));
+      });
+    }
+  </script>
+</body>
+</html>
