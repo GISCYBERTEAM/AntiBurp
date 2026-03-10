@@ -44,6 +44,12 @@
 ```cmd
 antiburp.exe
 ```
+## Доступ к интерфейсу
+После запуска откройте в браузере:
+**http://localhost:13444**
+Учётные данные по умолчанию (если не менялись):
+- **Логин:** admin
+- **Пароль:** admin123
 # License
 Copyright (c) 2026 GorillaHacker <gorillahacker@yandex.ru>.
 This project is licensed under the GNU Affero General Public License v3.0.
