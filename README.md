@@ -31,11 +31,20 @@
 - Модуль для добавления, замены и удаления HTTP-заголовков
 - Правила применяются ко всем исходящим запросам
 # Организация работы
+## Общая информация
 - Проекты — отдельные рабочие пространства для разных задач
 - Многопользовательский режим — роли, доступы и права
 - Экспорт и импорт — сохранение и перенос данных между проектами
+## Запуск
+### Linux / macOS
+```bash
+./antiburp
+```
+### Windows
+```cmd
+antiburp.exe
+```
 # License
 Copyright (c) 2026 GorillaHacker <gorillahacker@yandex.ru>.
-
 This project is licensed under the GNU Affero General Public License v3.0.
 See the [LICENSE](LICENSE) file for details.
