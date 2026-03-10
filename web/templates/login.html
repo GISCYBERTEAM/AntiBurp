@@ -1,0 +1,65 @@
+<!--
+  Copyright (C) 2026 GorillaHacker <gorillahacker@yandex.ru> https://t.me/gorillahacker
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as
+  published by the Free Software Foundation, either version 3 of the
+  License, or (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+-->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AntiBurp - Вход</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body class="auth-page">
+  <main class="auth-main">
+    <div class="auth-card">
+    <h1>AntiBurp</h1>
+    <p class="muted">Вход в систему</p>
+    {{if .Error}}
+      <div class="alert">{{.Error}}</div>
+    {{end}}
+    <form method="post" action="/login">
+      <label>Логин</label>
+      <input type="text" name="username" required />
+      <label>Пароль</label>
+      <input type="password" name="password" required />
+      <button type="submit" class="btn primary">Войти</button>
+    </form>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-left">
+        <span>© 2026–<span id="footer-year"></span></span>
+        <span>Все права защищены</span>
+        <a class="footer-link" href="https://gorillahacker.pro" target="_blank" rel="noopener">GorillaHacker</a>
+        <span class="muted">Версия: 1.0.0</span>
+      </div>
+      <div class="footer-right">
+        <span>CPU приложения: <strong id="footer-cpu-app">-</strong></span>
+        <span>Свободно CPU: <strong id="footer-cpu-free">-</strong></span>
+        <span>ROM приложения: <strong id="footer-mem-app">-</strong></span>
+        <span>Свободно ROM: <strong id="footer-mem-free">-</strong></span>
+        <span>БД проекта: <strong id="footer-db-project">-</strong></span>
+        <span>БД всего: <strong id="footer-db-total">-</strong></span>
+        <span>Свободно диска: <strong id="footer-db-free">-</strong></span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/footer.js"></script>
+</body>
+</html>
