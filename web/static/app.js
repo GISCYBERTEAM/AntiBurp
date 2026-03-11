@@ -31,6 +31,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupInterceptor(projectId);
     setupRepeater(projectId);
     setupAutomator(projectId);
+    document.querySelectorAll(".code-view .code").forEach((el) => setupCodeHighlightSync(el));
   }
 });
 
@@ -141,10 +142,14 @@ async function decompressBytes(bytes, encoding) {
   const enc = encoding.toLowerCase();
   if (!["gzip", "deflate", "br"].includes(enc)) return bytes;
   if (typeof DecompressionStream === "undefined") return bytes;
-  const stream = new DecompressionStream(enc);
-  const decompressed = new Response(new Blob([bytes]).stream().pipeThrough(stream));
-  const buffer = await decompressed.arrayBuffer();
-  return new Uint8Array(buffer);
+  try {
+    const stream = new DecompressionStream(enc);
+    const decompressed = new Response(new Blob([bytes]).stream().pipeThrough(stream));
+    const buffer = await decompressed.arrayBuffer();
+    return new Uint8Array(buffer);
+  } catch (err) {
+    return bytes;
+  }
 }
 
 async function decodeResponsePretty(b64, encoding) {
@@ -210,6 +215,193 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function wrapClass(text, cls) {
+  return `<span class="${cls}">${escapeHtml(text)}</span>`;
+}
+
+function normalizeLineEndings(text) {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function highlightHttp(text, isRequest) {
+  if (!text || typeof text !== "string") return escapeHtml(text || "");
+  const normalized = normalizeLineEndings(text);
+  const idx = normalized.indexOf("\n\n");
+  const head = idx >= 0 ? normalized.slice(0, idx) : normalized;
+  const body = idx >= 0 ? normalized.slice(idx + 2) : "";
+  const lines = head.split("\n");
+  let out = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (i === 0) {
+      if (isRequest && line.includes("?")) {
+        const q = line.indexOf("?");
+        const sp = line.indexOf(" ", q);
+        const path = line.slice(0, q + 1);
+        const query = sp >= 0 ? line.slice(q + 1, sp) : line.slice(q + 1);
+        const rest = sp >= 0 ? line.slice(sp) : "";
+        out += escapeHtml(path);
+        const params = query.split("&");
+        for (let j = 0; j < params.length; j++) {
+          if (j > 0) out += "&";
+          const eq = params[j].indexOf("=");
+          if (eq >= 0) {
+            out += wrapClass(params[j].slice(0, eq), "hl-param-name");
+            out += "=";
+            out += wrapClass(escapeHtml(params[j].slice(eq + 1)), "hl-param-value");
+          } else {
+            out += escapeHtml(params[j]);
+          }
+        }
+        out += escapeHtml(rest) + "\n";
+      } else {
+        out += escapeHtml(line) + "\n";
+      }
+      continue;
+    }
+    const colon = line.indexOf(":");
+    if (colon >= 0) {
+      out += wrapClass(line.slice(0, colon), "hl-header");
+      out += ":";
+      const val = line.slice(colon + 1);
+      const key = line.slice(0, colon).trim().toLowerCase();
+      if (key === "cookie") {
+        const parts = val.split(";");
+        for (let j = 0; j < parts.length; j++) {
+          if (j > 0) out += "; ";
+          const eq = parts[j].trim().indexOf("=");
+          const part = parts[j].trim();
+          if (eq >= 0) {
+            out += wrapClass(part.slice(0, eq), "hl-param-name");
+            out += "=";
+            out += wrapClass(escapeHtml(part.slice(eq + 1)), "hl-param-value");
+          } else {
+            out += escapeHtml(part);
+          }
+        }
+        out += "\n";
+      } else {
+        out += escapeHtml(val) + "\n";
+      }
+    } else {
+      out += escapeHtml(line) + "\n";
+    }
+  }
+  out += "\n";
+  if (body) {
+    const ct = head.toLowerCase();
+    const isJson = /content-type:\s*[^\n]*application\/json/i.test(ct);
+    const isForm = /content-type:\s*[^\n]*application\/x-www-form-urlencoded/i.test(ct);
+    if (isJson && /^\s*[\{\[]/.test(body)) {
+      out += highlightJson(body);
+    } else if (isForm) {
+      const params = body.split("&");
+      for (let j = 0; j < params.length; j++) {
+        if (j > 0) out += "&";
+        const eq = params[j].indexOf("=");
+        if (eq >= 0) {
+          out += wrapClass(params[j].slice(0, eq), "hl-param-name");
+          out += "=";
+          out += wrapClass(escapeHtml(params[j].slice(eq + 1)), "hl-param-value");
+        } else {
+          out += escapeHtml(params[j]);
+        }
+      }
+    } else {
+      out += escapeHtml(body);
+    }
+  }
+  return out;
+}
+
+function highlightJson(text) {
+  const out = [];
+  let i = 0;
+  const len = text.length;
+  while (i < len) {
+    const c = text[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < len && text[j] !== '"') {
+        if (text[j] === "\\") j += 2;
+        else j++;
+      }
+      const key = text.slice(i, j + 1);
+      const after = text.slice(j + 1);
+      const colon = after.match(/^\s*:/);
+      if (colon && /^\s*:\s*"/.test(after)) {
+        out.push(wrapClass(key, "hl-json-key"));
+        const strMatch = after.match(/^\s*:\s*"/);
+        let k = j + 1 + (strMatch ? strMatch[0].length : 0);
+        if (k < len && text[k] === '"') {
+          k++;
+          while (k < len && text[k] !== '"') {
+            if (text[k] === "\\") k += 2;
+            else k++;
+          }
+          k++;
+          out.push(wrapClass(text.slice(j + 1, k), "hl-json-value"));
+          i = k;
+        } else {
+          const num = after.match(/^\s*:\s*(-?\d+\.?\d*|true|false|null)/);
+          if (num) {
+            out.push(wrapClass(text.slice(j + 1, j + 1 + num[0].length), "hl-json-value"));
+            i = j + 1 + num[0].length;
+          } else {
+            out.push(escapeHtml(text.slice(j + 1, j + 2)));
+            i = j + 2;
+          }
+        }
+      } else if (colon && /^\s*:\s*(-?\d+\.?\d*|true|false|null)/.test(after)) {
+        out.push(wrapClass(key, "hl-json-key"));
+        const num = after.match(/^\s*:\s*(-?\d+\.?\d*|true|false|null)/);
+        if (num) {
+          out.push(wrapClass(text.slice(j + 1, j + 1 + num[0].length), "hl-json-value"));
+          i = j + 1 + num[0].length;
+        } else {
+          out.push(escapeHtml(key));
+          i = j + 1;
+        }
+      } else if (colon && /^\s*:\s*[\{\[]/.test(after)) {
+        out.push(wrapClass(key, "hl-json-key"));
+        out.push(escapeHtml(after.slice(0, after.search(/\S/))));
+        i = j + 1 + after.search(/\S/);
+        const stack = [text[i] === "{" ? "}" : "]"];
+        let depth = 1;
+        let pos = i + 1;
+        while (depth > 0 && pos < len) {
+          const ch = text[pos];
+          if (ch === '"') {
+            pos++;
+            while (pos < len && text[pos] !== '"') {
+              if (text[pos] === "\\") pos += 2;
+              else pos++;
+            }
+            pos++;
+          } else if (ch === "{" || ch === "[") {
+            stack.push(ch === "{" ? "}" : "]");
+            depth++;
+            pos++;
+          } else if (ch === "}" || ch === "]") {
+            stack.pop();
+            depth--;
+            pos++;
+          } else pos++;
+        }
+        out.push(highlightJson(text.slice(i, pos)));
+        i = pos;
+      } else {
+        out.push(wrapClass(key, "hl-json-value"));
+        i = j + 1;
+      }
+    } else {
+      out.push(escapeHtml(c));
+      i++;
+    }
+  }
+  return out.join("");
 }
 
 async function renderResponseFrame(frame, b64, encoding) {
@@ -292,35 +484,179 @@ function refreshEncodingViews() {
   if (targetsResp) renderSimpleView(targetsResp, "resp");
 }
 
+function getDisplayForView(view) {
+  if (!view || !view.parentElement) return null;
+  return view.parentElement.querySelector(".code-display");
+}
+
+function resizeCodeInner(view) {
+  const inner = view.parentElement;
+  const scroll = inner?.parentElement;
+  const codeView = view.closest(".code-view");
+  if (!inner?.classList.contains("code-inner") || !scroll?.classList.contains("code-scroll")) return;
+  const minH = scroll.clientHeight || codeView?.clientHeight || 374;
+  const isEditableOverlay = codeView?.classList.contains("code-highlight-mode") && !codeView.classList.contains("code-view-pretty");
+  if (isEditableOverlay) {
+    const contentH = Math.max(minH, view.scrollHeight);
+    inner.style.height = contentH + "px";
+  } else {
+    inner.style.height = minH + "px";
+  }
+}
+
+const READ_ONLY_PRETTY_IDS = new Set([
+  "targets-req", "targets-resp", "req-view", "resp-view",
+  "repeater-resp", "automator-modal-req-view", "automator-modal-resp-view"
+]);
+
+function isReadOnlyPrettyView(view) {
+  return view?.id && READ_ONLY_PRETTY_IDS.has(view.id);
+}
+
+function updateCodeDisplay(view, text, isRequest, useHighlight) {
+  if (!view) return;
+  const codeScroll = view.closest(".code-scroll");
+  const codeView = view.closest(".code-view");
+  const wasEditableOverlay = codeView?.classList.contains("code-highlight-mode") && !codeView.classList.contains("code-view-pretty");
+  const savedScroll = wasEditableOverlay && codeScroll ? codeScroll.scrollTop : view.scrollTop;
+  view.value = text || "";
+  const display = getDisplayForView(view);
+  if (!display) return;
+  if (useHighlight && text) {
+    display.innerHTML = highlightHttp(text, isRequest);
+    view.classList.add("code-highlight-mode");
+    if (codeView) {
+      codeView.classList.add("code-highlight-mode");
+      if (isReadOnlyPrettyView(view)) {
+        display.classList.add("code-display-pretty");
+        codeView.classList.add("code-view-pretty");
+      } else {
+        display.classList.remove("code-display-pretty");
+        codeView.classList.remove("code-view-pretty");
+      }
+    }
+    if (!isReadOnlyPrettyView(view) && codeScroll) {
+      requestAnimationFrame(() => {
+        codeScroll.scrollTop = savedScroll;
+      });
+    }
+  } else {
+    display.textContent = text || "";
+    display.classList.remove("code-display-pretty");
+    view.classList.remove("code-highlight-mode");
+    if (codeView) {
+      codeView.classList.remove("code-highlight-mode");
+      codeView.classList.remove("code-view-pretty");
+    }
+    if (wasEditableOverlay && codeScroll) {
+      view.scrollTop = savedScroll;
+    }
+  }
+  resizeCodeInner(view);
+  requestAnimationFrame(() => {
+    resizeCodeInner(view);
+    setTimeout(() => resizeCodeInner(view), 50);
+  });
+}
+
+function isEditableOverlayView(view) {
+  const codeView = view?.closest(".code-view");
+  return codeView?.classList.contains("code-highlight-mode") && !codeView.classList.contains("code-view-pretty");
+}
+
+function setupCodeHighlightSync(view) {
+  const display = getDisplayForView(view);
+  if (!display || !view) return;
+  const codeScroll = view.closest(".code-scroll");
+  const codeInner = view.parentElement;
+  const codeView = view.closest(".code-view");
+  if (codeScroll && codeInner?.classList.contains("code-inner")) {
+    const syncLayout = () => {
+      codeInner.style.width = codeScroll.clientWidth + "px";
+      resizeCodeInner(view);
+      if (codeView?.classList.contains("code-view-pretty")) {
+        display.style.minHeight = display.scrollHeight + "px";
+      } else if (isEditableOverlayView(view)) {
+        display.style.minHeight = view.scrollHeight + "px";
+        display.style.width = view.clientWidth + "px";
+      } else {
+        display.style.minHeight = view.scrollHeight + "px";
+        display.style.width = view.clientWidth + "px";
+      }
+    };
+    const syncDisplayScroll = () => {
+      if (!isEditableOverlayView(view)) {
+        display.style.transform = `translate(${-view.scrollLeft}px, ${-view.scrollTop}px)`;
+      }
+    };
+    syncLayout();
+    syncDisplayScroll();
+    new ResizeObserver(() => {
+      syncLayout();
+      syncDisplayScroll();
+    }).observe(codeScroll);
+    view.addEventListener("scroll", syncDisplayScroll);
+    view.addEventListener("wheel", () => {
+      requestAnimationFrame(syncDisplayScroll);
+    }, { passive: true });
+  }
+  view.addEventListener("input", () => {
+    if (view.classList.contains("code-highlight-mode")) {
+      const isRequest = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|CONNECT)\s/i.test(view.value);
+      display.innerHTML = highlightHttp(view.value, isRequest);
+    }
+    resizeCodeInner(view);
+  });
+  resizeCodeInner(view);
+}
+
 async function renderView(view, kind, mode) {
   if (!view) return;
+  const display = getDisplayForView(view);
   if (mode === "hex") {
-    view.value = view.dataset.hex || "";
+    const hex = view.dataset.hex || "";
+    view.value = hex;
+    if (display) {
+      display.textContent = hex;
+      display.classList.remove("code-display-pretty");
+      view.classList.remove("code-highlight-mode");
+      const codeView = view.closest(".code-view");
+      if (codeView) codeView.classList.remove("code-view-pretty");
+    }
+    resizeCodeInner(view);
     return;
   }
+  let text = "";
   if (kind === "resp" && mode === "pretty") {
     const pretty = await decodeResponsePretty(view.dataset.b64, getEncoding("resp"));
     if (pretty !== null) {
-      view.value = pretty;
-      return;
+      text = pretty;
     }
   }
-  const encoding = getEncoding(kind);
-  const decoded = decodeBase64(view.dataset.b64, encoding);
-  view.value = decoded !== null ? decoded : view.dataset.raw || "";
+  if (!text) {
+    const encoding = getEncoding(kind);
+    const decoded = decodeBase64(view.dataset.b64, encoding);
+    text = decoded !== null ? decoded : view.dataset.raw || "";
+  }
+  const isRequest = kind === "req";
+  updateCodeDisplay(view, text, isRequest, mode === "pretty");
 }
 
 async function renderSimpleView(view, kind) {
   const encoding = getEncoding(kind);
+  let text = "";
   if (kind === "resp") {
     const pretty = await decodeResponsePretty(view.dataset.b64, encoding);
     if (pretty !== null) {
-      view.value = pretty;
-      return;
+      text = pretty;
     }
   }
-  const decoded = decodeBase64(view.dataset.b64, encoding);
-  view.value = decoded !== null ? decoded : view.dataset.raw || "";
+  if (!text) {
+    const decoded = decodeBase64(view.dataset.b64, encoding);
+    text = decoded !== null ? decoded : view.dataset.raw || "";
+  }
+  const isRequest = kind === "req";
+  updateCodeDisplay(view, text, isRequest, true);
 }
 
 function scrollTextareaToPosition(textarea, from) {
@@ -357,8 +693,56 @@ function scrollTextareaToPosition(textarea, from) {
   const markerTop = marker.offsetTop;
   const markerLeft = marker.offsetLeft;
   document.body.removeChild(mirror);
-  textarea.scrollTop = Math.max(0, markerTop - textarea.clientHeight / 2);
-  textarea.scrollLeft = Math.max(0, markerLeft - textarea.clientWidth / 2);
+  const codeScroll = textarea.closest(".code-scroll");
+  const isEditableOverlay = codeScroll && textarea.closest(".code-view")?.classList.contains("code-highlight-mode") && !textarea.closest(".code-view")?.classList.contains("code-view-pretty");
+  if (isEditableOverlay && codeScroll) {
+    codeScroll.scrollTop = Math.max(0, markerTop - codeScroll.clientHeight / 2);
+    codeScroll.scrollLeft = Math.max(0, markerLeft - codeScroll.clientWidth / 2);
+  } else {
+    textarea.scrollTop = Math.max(0, markerTop - textarea.clientHeight / 2);
+    textarea.scrollLeft = Math.max(0, markerLeft - textarea.clientWidth / 2);
+    const display = textarea.parentElement?.querySelector(".code-display");
+    if (display) {
+      display.style.transform = `translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`;
+    }
+  }
+}
+
+function scrollToPosition(element, text, from) {
+  if (!element || from < 0 || element.clientWidth <= 0) return;
+  const style = getComputedStyle(element);
+  const mirror = document.createElement("div");
+  mirror.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;z-index:-1;top:0;left:-99999px;overflow:hidden;box-sizing:border-box;";
+  mirror.style.whiteSpace = style.whiteSpace || "pre-wrap";
+  mirror.style.wordWrap = style.wordWrap || "break-word";
+  mirror.style.width = `${element.clientWidth}px`;
+  mirror.style.fontFamily = style.fontFamily;
+  mirror.style.fontSize = style.fontSize;
+  mirror.style.lineHeight = style.lineHeight;
+  mirror.style.padding = style.padding;
+  const before = (text || "").slice(0, from);
+  mirror.textContent = before || "\u200b";
+  document.body.appendChild(mirror);
+  const markerTop = mirror.offsetHeight;
+  document.body.removeChild(mirror);
+  element.scrollTop = Math.max(0, markerTop - element.clientHeight / 2);
+}
+
+function getNodeAndOffsetAtOffset(element, charOffset) {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+  let count = 0;
+  let node = null;
+  let offset = 0;
+  while (walker.nextNode()) {
+    const textNode = walker.currentNode;
+    const len = textNode.textContent.length;
+    if (count + len >= charOffset) {
+      return { node: textNode, offset: charOffset - count };
+    }
+    count += len;
+  }
+  const last = walker.currentNode;
+  return last ? { node: last, offset: last.textContent.length } : { node: element, offset: 0 };
 }
 
 function focusTextareaMatch(textarea, start, end) {
@@ -366,10 +750,31 @@ function focusTextareaMatch(textarea, start, end) {
   const len = textarea.value.length;
   const safeStart = Math.max(0, Math.min(start, len));
   const safeEnd = Math.max(safeStart, Math.min(end, len));
+  const display = getDisplayForView(textarea);
+  const codeView = textarea.closest(".code-view");
+  const isReadOnly = isReadOnlyPrettyView(textarea) && codeView?.classList.contains("code-view-pretty");
   const applyFocus = () => {
-    textarea.focus();
-    textarea.setSelectionRange(safeStart, safeEnd, "forward");
-    scrollTextareaToPosition(textarea, safeStart);
+    if (isReadOnly && display) {
+      scrollToPosition(display, textarea.value, safeStart);
+      try {
+        const startPos = getNodeAndOffsetAtOffset(display, safeStart);
+        const endPos = getNodeAndOffsetAtOffset(display, safeEnd);
+        if (startPos.node && endPos.node) {
+          const range = document.createRange();
+          range.setStart(startPos.node, startPos.offset);
+          range.setEnd(endPos.node, endPos.offset);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          if (display.tabIndex !== -1) display.tabIndex = -1;
+          display.focus();
+        }
+      } catch (_) {}
+    } else {
+      textarea.focus();
+      textarea.setSelectionRange(safeStart, safeEnd, "forward");
+      scrollTextareaToPosition(textarea, safeStart);
+    }
   };
   requestAnimationFrame(applyFocus);
   setTimeout(applyFocus, 0);
@@ -447,17 +852,21 @@ function setupTargets(projectId) {
   let searchMatches = [];
   let searchIndex = 0;
 
-  function syncTargetsHeights(source, target) {
-    const h = source.offsetHeight;
-    if (h > 0 && target.offsetHeight !== h) {
-      target.style.height = h + "px";
-    }
+  const reqCodeView = targetsReq ? targetsReq.closest(".code-view") : null;
+  const respCodeView = targetsResp ? targetsResp.closest(".code-view") : null;
+  function syncTargetsHeights(h) {
+    const height = Math.max(374, h);
+    if (reqCodeView) reqCodeView.style.height = height + "px";
+    if (respCodeView) respCodeView.style.height = height + "px";
+    requestAnimationFrame(() => {
+      resizeCodeInner(targetsReq);
+      resizeCodeInner(targetsResp);
+    });
   }
   const targetsRo = new ResizeObserver((entries) => {
     for (const e of entries) {
       const el = e.target;
-      const other = el === targetsReq ? targetsResp : targetsReq;
-      syncTargetsHeights(el, other);
+      if (el === targetsReq || el === targetsResp) syncTargetsHeights(el.offsetHeight);
     }
   });
   targetsRo.observe(targetsReq);
@@ -609,7 +1018,7 @@ function setupTargets(projectId) {
     if (targetsRespRender) {
       targetsRespRender.classList.remove("active");
     }
-    targetsResp.style.display = "";
+    if (targetsResp.parentElement) targetsResp.parentElement.style.display = "";
   }
 
   async function fillTargetsFromRequest(it) {
@@ -855,7 +1264,8 @@ function setupTargets(projectId) {
           await renderView(targetsReq, "req", detail.endsWith("hex") ? "hex" : detail.endsWith("pretty") ? "pretty" : "raw");
         } else if (detail.startsWith("targets-resp")) {
           if (detail.endsWith("render")) {
-            targetsResp.style.display = "none";
+            const codeView = targetsResp.closest(".code-view");
+            if (codeView) codeView.style.display = "none";
             if (targetsRespRender) {
               targetsRespRender.classList.add("active");
               await renderResponseFrame(targetsRespRender, targetsResp.dataset.b64 || "", getEncoding("resp"));
@@ -864,7 +1274,8 @@ function setupTargets(projectId) {
             if (targetsRespRender) {
               targetsRespRender.classList.remove("active");
             }
-            targetsResp.style.display = "";
+            const codeView = targetsResp.closest(".code-view");
+            if (codeView) codeView.style.display = "";
             await renderView(targetsResp, "resp", detail.endsWith("hex") ? "hex" : detail.endsWith("pretty") ? "pretty" : "raw");
           }
         }
@@ -1152,17 +1563,21 @@ function setupProxy(projectId) {
   let selectedResponse = "";
   let selectedHistoryId = null;
 
-  function syncProxyHeights(source, target) {
-    const h = source.offsetHeight;
-    if (h > 0 && target.offsetHeight !== h) {
-      target.style.height = h + "px";
-    }
+  const reqCodeView = reqView ? reqView.closest(".code-view") : null;
+  const respCodeView = respView ? respView.closest(".code-view") : null;
+  function syncProxyHeights(h) {
+    const height = Math.max(374, h);
+    if (reqCodeView) reqCodeView.style.height = height + "px";
+    if (respCodeView) respCodeView.style.height = height + "px";
+    requestAnimationFrame(() => {
+      resizeCodeInner(reqView);
+      resizeCodeInner(respView);
+    });
   }
   const proxyRo = new ResizeObserver((entries) => {
     for (const e of entries) {
       const el = e.target;
-      const other = el === reqView ? respView : reqView;
-      syncProxyHeights(el, other);
+      if (el === reqView || el === respView) syncProxyHeights(el.offsetHeight);
     }
   });
   proxyRo.observe(reqView);
@@ -1376,7 +1791,7 @@ function setupProxy(projectId) {
       if (typeof createRepeaterTabWithRequest === "function") {
         createRepeaterTabWithRequest(selectedRequest);
       } else {
-        repeater.value = selectedRequest;
+        updateCodeDisplay(repeater, selectedRequest || "", true, true);
       }
     }
     if (sendMenu) sendMenu.classList.remove("open");
@@ -1389,7 +1804,7 @@ function setupProxy(projectId) {
       if (typeof createAutomatorTabWithRequest === "function") {
         createAutomatorTabWithRequest(selectedRequest);
       } else {
-        automator.value = selectedRequest;
+        updateCodeDisplay(automator, selectedRequest || "", true, true);
       }
     }
     if (sendMenu) sendMenu.classList.remove("open");
@@ -1447,12 +1862,14 @@ function setupProxy(projectId) {
         await renderView(reqView, "req", tab.dataset.detail.endsWith("hex") ? "hex" : tab.dataset.detail.endsWith("pretty") ? "pretty" : "raw");
       } else if (tab.dataset.detail.startsWith("resp")) {
         if (tab.dataset.detail.endsWith("render")) {
-          respView.style.display = "none";
+          const codeView = respView.closest(".code-view");
+          if (codeView) codeView.style.display = "none";
           respRender.classList.add("active");
           await renderResponseFrame(respRender, respView.dataset.b64 || "", getEncoding("resp"));
         } else {
           respRender.classList.remove("active");
-          respView.style.display = "";
+          const codeView = respView.closest(".code-view");
+          if (codeView) codeView.style.display = "";
           await renderView(respView, "resp", tab.dataset.detail.endsWith("hex") ? "hex" : tab.dataset.detail.endsWith("pretty") ? "pretty" : "raw");
         }
       }
@@ -1499,6 +1916,10 @@ function setupInterceptor(projectId) {
 
   toggle.addEventListener("change", async () => {
     const enabled = toggle.checked;
+    if (!enabled) {
+      updateCodeDisplay(editor, "", true, true);
+      currentId = "";
+    }
     await fetch(`/api/projects/intercept?project_id=${projectId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1518,7 +1939,7 @@ function setupInterceptor(projectId) {
         item.innerHTML = `<div><strong>${it.id}</strong></div><div class="muted">${it.created_at}</div>`;
         item.addEventListener("click", () => {
           currentId = it.id;
-          editor.value = it.raw_req;
+          updateCodeDisplay(editor, it.raw_req || "", true, true);
         });
         queueEl.appendChild(item);
       });
@@ -1537,7 +1958,7 @@ function setupInterceptor(projectId) {
       });
     } finally {
       currentId = "";
-      editor.value = "";
+      updateCodeDisplay(editor, "", true, true);
       loadQueue();
     }
   });
@@ -1550,7 +1971,7 @@ function setupInterceptor(projectId) {
       body: JSON.stringify({ id: currentId, allow: false, raw_req: editor.value }),
     });
     currentId = "";
-    editor.value = "";
+    updateCodeDisplay(editor, "", true, true);
     loadQueue();
   });
 
@@ -1584,17 +2005,21 @@ function setupRepeater(projectId) {
   let draftTimer = null;
   let runsTimer = null;
 
-  function syncRepeaterHeights(source, target) {
-    const h = source.offsetHeight;
-    if (h > 0 && target.offsetHeight !== h) {
-      target.style.height = h + "px";
-    }
+  const reqCodeView = req ? req.closest(".code-view") : null;
+  const respCodeView = resp ? resp.closest(".code-view") : null;
+  function syncRepeaterHeights(h) {
+    const height = Math.max(374, h);
+    if (reqCodeView) reqCodeView.style.height = height + "px";
+    if (respCodeView) respCodeView.style.height = height + "px";
+    requestAnimationFrame(() => {
+      resizeCodeInner(req);
+      resizeCodeInner(resp);
+    });
   }
   const ro = new ResizeObserver((entries) => {
     for (const e of entries) {
       const el = e.target;
-      const other = el === req ? resp : req;
-      syncRepeaterHeights(el, other);
+      if (el === req || el === resp) syncRepeaterHeights(el.offsetHeight);
     }
   });
   ro.observe(req);
@@ -1616,7 +2041,7 @@ function setupRepeater(projectId) {
     }
   }
 
-  function persistActiveDraft() {
+  async function persistActiveDraft() {
     if (!repeaterState.activeId) return;
     const payload = {
       tab_id: repeaterState.activeId,
@@ -1627,7 +2052,9 @@ function setupRepeater(projectId) {
       resp_len: parseInt(lenEl.innerText || "0", 10),
       duration_ms: parseInt(timeEl.innerText || "0", 10),
     };
-    postRepeater(`/api/projects/repeater/tab/draft?project_id=${projectId}`, payload).catch(() => {});
+    try {
+      await postRepeater(`/api/projects/repeater/tab/draft?project_id=${projectId}`, payload);
+    } catch (_) {}
   }
 
   function renderTabs() {
@@ -1637,15 +2064,35 @@ function setupRepeater(projectId) {
       btn.className = "tab" + (tab.id === repeaterState.activeId ? " active" : "");
       btn.innerHTML = `<span>${tab.name}</span><button class="tab-close" title="Удалить">×</button>`;
       btn.addEventListener("click", async () => {
-        persistActiveDraft();
+        await persistActiveDraft();
         repeaterState.activeId = tab.id;
+        const isFallbackTab = typeof tab.id === "string" && String(tab.id).startsWith("tab-");
+        if (isFallbackTab) {
+          renderTabs();
+          updateCodeDisplay(req, "", true, true);
+          updateCodeDisplay(resp, "", false, true);
+          resp.dataset.raw = "";
+          resp.dataset.hex = "";
+          resp.dataset.b64 = "";
+          lenEl.innerText = "0";
+          timeEl.innerText = "0";
+          renderHistory();
+          return;
+        }
         try {
           await postRepeater(`/api/projects/repeater/tab/activate?project_id=${projectId}`, { tab_id: tab.id });
           renderTabs();
           loadTabData(tab.id);
         } catch (err) {
-          alert(`Не удалось активировать вкладку: ${err.message}`);
-          loadTabsFromServer();
+          try {
+            await new Promise((r) => setTimeout(r, 300));
+            await postRepeater(`/api/projects/repeater/tab/activate?project_id=${projectId}`, { tab_id: tab.id });
+            renderTabs();
+            loadTabData(tab.id);
+          } catch (retryErr) {
+            alert(`Не удалось активировать вкладку: ${err.message}`);
+            loadTabsFromServer();
+          }
         }
       });
       btn.querySelector(".tab-close").addEventListener("click", async (event) => {
@@ -1691,9 +2138,10 @@ function setupRepeater(projectId) {
       row.className = "list-item";
       const firstLine = (item.req_raw || "").split("\n")[0] || "Запрос";
       const timestamp = item.created_at || item.timestamp || "";
-      row.innerHTML = `<div><strong>#${active.history.length - index}</strong> ${firstLine}</div><div class="muted">${timestamp}</div>`;
-      row.addEventListener("click", async () => {
-        req.value = item.req_raw || "";
+      const shortReq = firstLine.length > 120 ? firstLine.slice(0, 120) + "…" : firstLine;
+      row.innerHTML = `<div class="history-request"><strong>#${active.history.length - index}</strong> ${shortReq}</div><div class="muted">${timestamp}</div>`;
+        row.addEventListener("click", async () => {
+          updateCodeDisplay(req, item.req_raw || "", true, true);
         resp.dataset.raw = item.resp_raw || "";
         resp.dataset.hex = item.resp_hex || "";
         resp.dataset.b64 = item.resp_b64 || "";
@@ -1805,40 +2253,53 @@ function setupRepeater(projectId) {
     if (isSending) return;
     const raw_req = req.value;
     currentRequestId = `rep-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const tabId = repeaterState.activeId;
+    const tab_id = typeof tabId === "number" && Number.isInteger(tabId) ? tabId : 0;
     setSendingState(true);
-    const res = await fetch(`/api/projects/repeater/send?project_id=${projectId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ raw_req, request_id: currentRequestId, tab_id: repeaterState.activeId }),
-    });
-    const data = await res.json();
-    if (data.error) {
-      resp.value = data.error;
+    try {
+      const res = await fetch(`/api/projects/repeater/send?project_id=${projectId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raw_req, request_id: currentRequestId, tab_id }),
+      });
+      let data;
+      try {
+        data = await res.json();
+      } catch (_) {
+        const text = await res.text();
+        data = { error: text || `HTTP ${res.status}` };
+      }
+      if (data.error) {
+        updateCodeDisplay(resp, data.error || "", false, true);
+        setSendingState(false);
+        return;
+      }
+      resp.dataset.raw = data.resp_raw;
+      resp.dataset.hex = data.resp_hex;
+      resp.dataset.b64 = data.resp_b64 || "";
+      await renderSimpleView(resp, "resp");
+      lenEl.innerText = `${data.resp_len || 0}`;
+      timeEl.innerText = `${data.duration || 0}`;
+      addHistoryEntry({
+        req_raw: data.req_raw,
+        resp_raw: data.resp_raw,
+        resp_hex: data.resp_hex,
+        resp_b64: data.resp_b64 || "",
+        duration: data.duration,
+        resp_len: data.resp_len,
+        timestamp: data.timestamp,
+      });
+      persistActiveDraft();
+      if (searchFocus && searchFocus.checked) {
+        focusFirstMatchAfterSend();
+      } else {
+        refreshSearchMatches();
+      }
+    } catch (err) {
+      updateCodeDisplay(resp, err.message || "Ошибка отправки", false, true);
+    } finally {
       setSendingState(false);
-      return;
     }
-    resp.dataset.raw = data.resp_raw;
-    resp.dataset.hex = data.resp_hex;
-    resp.dataset.b64 = data.resp_b64 || "";
-    await renderSimpleView(resp, "resp");
-    lenEl.innerText = `${data.resp_len || 0}`;
-    timeEl.innerText = `${data.duration || 0}`;
-    addHistoryEntry({
-      req_raw: data.req_raw,
-      resp_raw: data.resp_raw,
-      resp_hex: data.resp_hex,
-      resp_b64: data.resp_b64 || "",
-      duration: data.duration,
-      resp_len: data.resp_len,
-      timestamp: data.timestamp,
-    });
-    persistActiveDraft();
-    if (searchFocus && searchFocus.checked) {
-      focusFirstMatchAfterSend();
-    } else {
-      refreshSearchMatches();
-    }
-    setSendingState(false);
   });
 
   cancelBtn.addEventListener("click", async () => {
@@ -1909,7 +2370,7 @@ function setupRepeater(projectId) {
         if (!tab) return;
         tab.history = data.history || [];
         if (data.draft && data.draft.req_raw) {
-          req.value = data.draft.req_raw || "";
+          updateCodeDisplay(req, data.draft.req_raw || "", true, true);
           resp.dataset.raw = data.draft.resp_raw || "";
           resp.dataset.hex = data.draft.resp_hex || "";
           resp.dataset.b64 = data.draft.resp_b64 || "";
@@ -1918,7 +2379,7 @@ function setupRepeater(projectId) {
           timeEl.innerText = `${data.draft.duration_ms || 0}`;
         } else if (tab.history.length > 0) {
           const latest = tab.history[0];
-          req.value = latest.req_raw || "";
+          updateCodeDisplay(req, latest.req_raw || "", true, true);
           resp.dataset.raw = latest.resp_raw || "";
           resp.dataset.hex = latest.resp_hex || "";
           resp.dataset.b64 = latest.resp_b64 || "";
@@ -1926,8 +2387,8 @@ function setupRepeater(projectId) {
           lenEl.innerText = `${latest.resp_len || 0}`;
           timeEl.innerText = `${latest.duration_ms || 0}`;
         } else {
-          req.value = presetReq || "";
-          resp.value = "";
+          updateCodeDisplay(req, presetReq || "", true, true);
+          updateCodeDisplay(resp, "", false, true);
           resp.dataset.raw = "";
           resp.dataset.hex = "";
           resp.dataset.b64 = "";
@@ -1944,8 +2405,8 @@ function setupRepeater(projectId) {
         if (tab) {
           tab.history = [];
         }
-        req.value = presetReq || "";
-        resp.value = "";
+        updateCodeDisplay(req, presetReq || "", true, true);
+        updateCodeDisplay(resp, "", false, true);
         resp.dataset.raw = "";
         resp.dataset.hex = "";
         resp.dataset.b64 = "";
@@ -2375,7 +2836,7 @@ function setupAutomator(projectId) {
       .then((res) => res.json())
       .then((data) => {
         const draft = data.draft || {};
-        req.value = draft.req_raw || presetReq || "";
+        updateCodeDisplay(req, draft.req_raw || presetReq || "", true, true);
         if (draft.config_json) {
           try {
             applyConfig(JSON.parse(draft.config_json));
@@ -2393,7 +2854,7 @@ function setupAutomator(projectId) {
         startRunsAutoRefresh(tabId);
       })
       .catch(() => {
-        req.value = presetReq || "";
+        updateCodeDisplay(req, presetReq || "", true, true);
         automatorState.positions = [];
         updatePositionsFromRequest();
         if (presetReq) {
@@ -2550,13 +3011,14 @@ function setupAutomator(projectId) {
   function openRunModal(runId) {
     if (!modal || !modalList || !modalReqView || !modalRespView) return;
     modal.classList.remove("hidden");
-    modalReqView.value = "";
-    modalRespView.value = "";
+    updateCodeDisplay(modalReqView, "", true, false);
+    updateCodeDisplay(modalRespView, "", false, false);
     modalSortCol = "index";
     modalSortDir = "asc";
     if (modalRespRender) {
       modalRespRender.classList.remove("active");
-      modalRespView.style.display = "";
+      const codeView = modalRespView.closest(".code-view");
+      if (codeView) codeView.style.display = "";
     }
 
     const renderRunStatus = () => {
@@ -2565,8 +3027,14 @@ function setupAutomator(projectId) {
         .then((data) => {
           const items = Array.isArray(data.items) ? data.items : [];
           const positionsCount = Number(data.positions_count || 0);
+          const positionsNames = Array.isArray(data.positions_names) && data.positions_names.length === positionsCount
+            ? data.positions_names
+            : null;
           const sortKeys = ["index", ...Array.from({ length: positionsCount }, (_, i) => `payload_${i}`), "status", "time", "length"];
-          const labels = ["#", ...Array.from({ length: positionsCount }, (_, i) => `Нагрузка ${i + 1}`), "Код", "Время", "Длина"];
+          const labels = ["#", ...Array.from({ length: positionsCount }, (_, i) => {
+            const name = positionsNames?.[i];
+            return (name !== undefined && name !== "" ? name : `Нагрузка ${i + 1}`);
+          }), "Код", "Время", "Длина"];
           if (modalHead) {
             modalHead.innerHTML = labels.map((label, i) => {
               const key = sortKeys[i];
@@ -2626,8 +3094,10 @@ function setupAutomator(projectId) {
                   modalRespView.dataset.raw = detail.resp_raw || "";
                   modalRespView.dataset.hex = detail.resp_hex || "";
                   modalRespView.dataset.b64 = detail.resp_b64 || "";
-                  renderView(modalReqView, "req", getActiveDetailMode("req", modal));
-                  renderView(modalRespView, "resp", getActiveDetailMode("resp", modal));
+                  const reqScope = modal?.querySelector(".modal-request-row > div:first-child");
+                  const respScope = modal?.querySelector(".modal-request-row > div:last-child");
+                  renderView(modalReqView, "req", getActiveDetailMode("req", reqScope || modal));
+                  renderView(modalRespView, "resp", getActiveDetailMode("resp", respScope || modal));
                   if (modalRespRender && modalRespRender.classList.contains("active")) {
                     renderResponseFrame(modalRespRender, modalRespView.dataset.b64 || "", getEncoding("resp"));
                   }
@@ -2684,15 +3154,17 @@ function setupAutomator(projectId) {
         } else if (tab.dataset.detail.startsWith("resp")) {
           if (tab.dataset.detail.endsWith("render")) {
             if (modalRespRender) {
-              modalRespView.style.display = "none";
+              const codeView = modalRespView.closest(".code-view");
+              if (codeView) codeView.style.display = "none";
               modalRespRender.classList.add("active");
               await renderResponseFrame(modalRespRender, modalRespView.dataset.b64 || "", getEncoding("resp"));
             }
           } else {
             if (modalRespRender) {
               modalRespRender.classList.remove("active");
-              modalRespView.style.display = "";
             }
+            const codeView = modalRespView.closest(".code-view");
+            if (codeView) codeView.style.display = "";
             await renderView(modalRespView, "resp", tab.dataset.detail.endsWith("hex") ? "hex" : tab.dataset.detail.endsWith("pretty") ? "pretty" : "raw");
           }
         }
