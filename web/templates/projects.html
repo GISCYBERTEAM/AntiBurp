@@ -26,6 +26,7 @@
   <header class="topbar">
     <div class="brand">AntiBurp</div>
     <div class="actions">
+      <button type="button" class="theme-toggle" id="theme-toggle" title="Переключить тему"><svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
       <span class="chip">Пользователь: {{.User.Username}} ({{.User.Role}})</span>
       <a href="/admin/users" class="btn">Пользователи</a>
       <a href="/logout" class="btn">Выйти</a>
@@ -102,7 +103,7 @@
         <span>© 2026–<span id="footer-year"></span></span>
         <span>Все права защищены</span>
         <a class="footer-link" href="https://gorillahacker.pro" target="_blank" rel="noopener">GorillaHacker</a>
-        <span class="muted">Версия: 1.0.0</span>
+        <span class="muted">Версия: 1.1.0</span>
       </div>
       <div class="footer-right">
         <span>CPU приложения: <strong id="footer-cpu-app">-</strong></span>

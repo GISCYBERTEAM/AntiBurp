@@ -26,6 +26,7 @@
   <header class="topbar">
     <div class="brand">AntiBurp</div>
     <div class="actions">
+      <button type="button" class="theme-toggle" id="theme-toggle" title="Переключить тему"><svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
       <span class="chip">Проект: {{.Project.Name}}</span>
       <span class="chip">Пользователь: {{.User.Username}} ({{.User.Role}})</span>
       <a href="/projects" class="btn">Проекты</a>
@@ -82,7 +83,14 @@
                 <button class="tab" data-detail="targets-req-raw">Raw</button>
                 <button class="tab" data-detail="targets-req-hex">HEX</button>
               </div>
-              <textarea id="targets-req" class="code"></textarea>
+              <div class="code-view">
+                <div class="code-scroll">
+                  <div class="code-inner">
+                    <pre class="code-display" id="targets-req-display"></pre>
+                    <textarea id="targets-req" class="code"></textarea>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="targets-detail-block">
               <h3>Ответ</h3>
@@ -92,7 +100,14 @@
                 <button class="tab" data-detail="targets-resp-hex">HEX</button>
                 <button class="tab" data-detail="targets-resp-render">Render</button>
               </div>
-              <textarea id="targets-resp" class="code"></textarea>
+              <div class="code-view">
+                <div class="code-scroll">
+                  <div class="code-inner">
+                    <pre class="code-display" id="targets-resp-display"></pre>
+                    <textarea id="targets-resp" class="code"></textarea>
+                  </div>
+                </div>
+              </div>
               <iframe id="targets-resp-render" class="render-frame" title="Ответ Render"></iframe>
             </div>
           </div>
@@ -164,7 +179,14 @@
                 </div>
               </div>
             </div>
-            <textarea id="req-view" class="code"></textarea>
+            <div class="code-view">
+              <div class="code-scroll">
+                <div class="code-inner">
+                  <pre class="code-display" id="req-view-display"></pre>
+                  <textarea id="req-view" class="code"></textarea>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="proxy-io-col">
             <div class="detail-tabs">
@@ -173,7 +195,14 @@
               <button class="tab" data-detail="resp-hex">HEX</button>
               <button class="tab" data-detail="resp-render">Render</button>
             </div>
-            <textarea id="resp-view" class="code"></textarea>
+            <div class="code-view">
+              <div class="code-scroll">
+                <div class="code-inner">
+                  <pre class="code-display" id="resp-view-display"></pre>
+                  <textarea id="resp-view" class="code"></textarea>
+                </div>
+              </div>
+            </div>
             <iframe id="resp-render" class="render-frame" title="Ответ Render"></iframe>
           </div>
         </div>
@@ -206,7 +235,14 @@
         </div>
         <div>
           <h3>Редактор запроса</h3>
-          <textarea id="intercept-editor" class="code"></textarea>
+          <div class="code-view">
+            <div class="code-scroll">
+              <div class="code-inner">
+                <pre class="code-display" id="intercept-editor-display"></pre>
+                <textarea id="intercept-editor" class="code"></textarea>
+              </div>
+            </div>
+          </div>
           <div class="actions intercept-actions">
             <button class="btn primary" id="intercept-send">Отправить</button>
             <button class="btn danger" id="intercept-drop">Не отправлять</button>
@@ -224,11 +260,25 @@
       <div class="split">
         <div>
           <h3>Запрос</h3>
-          <textarea id="repeater-req" class="code"></textarea>
+          <div class="code-view">
+            <div class="code-scroll">
+              <div class="code-inner">
+                <pre class="code-display" id="repeater-req-display"></pre>
+                <textarea id="repeater-req" class="code"></textarea>
+              </div>
+            </div>
+          </div>
         </div>
         <div>
           <h3>Ответ</h3>
-          <textarea id="repeater-resp" class="code"></textarea>
+          <div class="code-view">
+            <div class="code-scroll">
+              <div class="code-inner">
+                <pre class="code-display" id="repeater-resp-display"></pre>
+                <textarea id="repeater-resp" class="code"></textarea>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="repeater-toolbar">
@@ -274,7 +324,14 @@
             <h3>Запрос</h3>
             <span class="help-dot" title="Используйте маркеры §значение§ для позиций">?</span>
           </div>
-          <textarea id="automator-req" class="code"></textarea>
+          <div class="code-view">
+            <div class="code-scroll">
+              <div class="code-inner">
+                <pre class="code-display" id="automator-req-display"></pre>
+                <textarea id="automator-req" class="code"></textarea>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="automator-positions">
           <div class="positions-header">
@@ -336,7 +393,14 @@
                 <button class="tab" data-detail="req-raw">Запрос Raw</button>
                 <button class="tab" data-detail="req-hex">Запрос HEX</button>
               </div>
-              <textarea id="automator-modal-req-view" class="code"></textarea>
+              <div class="code-view">
+                <div class="code-scroll">
+                  <div class="code-inner">
+                    <pre class="code-display" id="automator-modal-req-display"></pre>
+                    <textarea id="automator-modal-req-view" class="code"></textarea>
+                  </div>
+                </div>
+              </div>
             </div>
             <div>
               <div class="detail-tabs">
@@ -345,7 +409,14 @@
                 <button class="tab" data-detail="resp-hex">Ответ HEX</button>
                 <button class="tab" data-detail="resp-render">Ответ Render</button>
               </div>
-              <textarea id="automator-modal-resp-view" class="code"></textarea>
+              <div class="code-view">
+                <div class="code-scroll">
+                  <div class="code-inner">
+                    <pre class="code-display" id="automator-modal-resp-display"></pre>
+                    <textarea id="automator-modal-resp-view" class="code"></textarea>
+                  </div>
+                </div>
+              </div>
               <iframe id="automator-modal-resp-render" class="render-frame" title="Ответ Render"></iframe>
             </div>
           </div>
@@ -541,7 +612,7 @@
         <span>© 2026–<span id="footer-year"></span></span>
         <span>Все права защищены</span>
         <a class="footer-link" href="https://gorillahacker.pro" target="_blank" rel="noopener">GorillaHacker</a>
-        <span class="muted">Версия: 1.0.0</span>
+        <span class="muted">Версия: 1.1.0</span>
       </div>
       <div class="footer-right">
         <span>CPU приложения: <strong id="footer-cpu-app">-</strong></span>
