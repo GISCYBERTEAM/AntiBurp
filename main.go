@@ -1051,12 +1051,13 @@ func (app *App) createRepeaterTab(projectID int64, name string) error {
 }
 
 func (app *App) setRepeaterActiveTab(projectID, tabID int64) error {
-	_, err := app.db.Exec(`UPDATE repeater_tabs SET is_active = 0 WHERE project_id = ?`, projectID)
-	if err != nil {
+	if _, err := app.db.Exec(`UPDATE repeater_tabs SET is_active = 0 WHERE project_id = ?`, projectID); err != nil {
 		return err
 	}
-	_, err = app.db.Exec(`UPDATE repeater_tabs SET is_active = 1 WHERE id = ?`, tabID)
-	return err
+	if _, err := app.db.Exec(`UPDATE repeater_tabs SET is_active = 1 WHERE id = ? AND project_id = ?`, tabID, projectID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (app *App) repeaterTabBelongs(projectID, tabID int64) bool {
@@ -2535,6 +2536,7 @@ func (app *App) handleRepeaterActivateAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := app.setRepeaterActiveTab(projectID, payload.TabID); err != nil {
+		log.Printf("setRepeaterActiveTab error: %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
 		return
 	}
@@ -2672,6 +2674,10 @@ func (app *App) handleAutomatorStatusAPI(w http.ResponseWriter, r *http.Request,
 	var cfg AutomatorConfig
 	_ = json.Unmarshal([]byte(configJSON), &cfg)
 	positionsCount := len(cfg.Positions)
+	_, positionNames, _ := parsePlaceholders(cfg.RawRequest, cfg.Placeholder)
+	if len(positionNames) != positionsCount {
+		positionNames = nil
+	}
 	rows, err := app.db.Query(`
 		SELECT id, index_no, status_code, payload_values, duration_ms, resp_len
 		FROM automator_requests
@@ -2702,7 +2708,7 @@ func (app *App) handleAutomatorStatusAPI(w http.ResponseWriter, r *http.Request,
 			items = append(items, it)
 		}
 	}
-	writeJSON(w, map[string]any{"status": status, "positions_count": positionsCount, "items": items})
+	writeJSON(w, map[string]any{"status": status, "positions_count": positionsCount, "positions_names": positionNames, "items": items})
 }
 
 func (app *App) handleAutomatorRequestAPI(w http.ResponseWriter, r *http.Request, user *User) {
