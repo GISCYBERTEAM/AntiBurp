@@ -1,5 +1,5 @@
 # AntiBurp
-<img width="3014" height="1886" alt="image" src="https://github.com/user-attachments/assets/26acac04-a640-40d7-9344-07eb2f1fb978" />
+<img width="1699" height="1099" alt="image" src="https://github.com/user-attachments/assets/7e96dbfc-b86d-4a78-b274-3e0582aa253b" />
 
 Платформа для тестирования безопасности веб-приложений. Инструмент для ручного и автоматизированного анализа HTTP/HTTPS-трафика, поиска уязвимостей и проверки защищённости веб-приложений.
 # Основные возможности
