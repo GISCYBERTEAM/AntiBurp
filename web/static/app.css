@@ -112,6 +112,29 @@ a {
   font-weight: 600;
 }
 
+.expand-toggle {
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--btn-color);
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.expand-toggle .expand-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.expand-toggle:hover {
+  opacity: 0.9;
+}
+
 .theme-toggle {
   background: var(--btn-bg);
   border: 1px solid var(--btn-border);
@@ -162,6 +185,11 @@ a {
   margin: 24px auto;
   padding: 0 16px;
   width: 100%;
+}
+
+main.container.container-expanded {
+  max-width: 98%;
+  padding: 0 12px;
 }
 main.container {
   flex: 1;
@@ -616,6 +644,11 @@ th {
   width: 100%;
 }
 
+.history-table-wrap {
+  display: block;
+  width: calc(100% - 17px);
+}
+
 .proxy-detail {
   margin-top: 12px;
 }
@@ -640,6 +673,11 @@ th {
 .history-table {
   width: 100%;
   table-layout: fixed;
+}
+
+.proxy-history-list .history-table th:last-child,
+.proxy-history-list .history-table td:last-child {
+  padding-right: 20px;
 }
 
 .history-table tr.selected {

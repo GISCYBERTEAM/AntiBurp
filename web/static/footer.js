@@ -42,6 +42,27 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const EXPAND_KEY = "abp_expand";
+  const expandToggle = document.getElementById("expand-toggle");
+  const mainContainer = document.querySelector("main.container");
+  if (expandToggle && mainContainer) {
+    const isExpanded = () => localStorage.getItem(EXPAND_KEY) === "1";
+    const setExpanded = (expanded) => {
+      if (expanded) {
+        mainContainer.classList.add("container-expanded");
+        expandToggle.innerHTML = '<svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H3v6M15 21h6v-6M3 15l7-7M21 9l-7 7"/></svg>';
+        expandToggle.title = "Свернуть";
+      } else {
+        mainContainer.classList.remove("container-expanded");
+        expandToggle.innerHTML = '<svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
+        expandToggle.title = "Расширить";
+      }
+      localStorage.setItem(EXPAND_KEY, expanded ? "1" : "0");
+    };
+    setExpanded(isExpanded());
+    expandToggle.addEventListener("click", () => setExpanded(!isExpanded()));
+  }
+
   const yearEl = document.getElementById("footer-year");
   if (yearEl) {
     yearEl.textContent = String(new Date().getFullYear());
