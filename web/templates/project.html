@@ -26,6 +26,7 @@
   <header class="topbar">
     <div class="brand">AntiBurp</div>
     <div class="actions">
+      <button type="button" class="expand-toggle" id="expand-toggle" title="Расширить"><svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
       <button type="button" class="theme-toggle" id="theme-toggle" title="Переключить тему"><svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
       <span class="chip">Проект: {{.Project.Name}}</span>
       <span class="chip">Пользователь: {{.User.Username}} ({{.User.Role}})</span>
@@ -145,10 +146,11 @@
         <button class="btn" id="proxy-history-filter-btn">Фильтр</button>
       </div>
       <div class="history-list proxy-history-list">
+        <div class="history-table-wrap">
         <table class="history-table">
           <colgroup>
             <col style="width: 4%" />
-            <col style="width: 34%" />
+            <col style="width: 30%" />
             <col style="width: 8%" />
             <col style="width: 6%" />
             <col style="width: 10%" />
@@ -156,7 +158,7 @@
             <col style="width: 6%" />
             <col style="width: 6%" />
             <col style="width: 12%" />
-            <col style="width: 4%" />
+            <col style="width: 8%" />
           </colgroup>
           <thead>
             <tr>
@@ -174,6 +176,7 @@
           </thead>
           <tbody id="history-list"></tbody>
         </table>
+        </div>
       </div>
       <div class="proxy-detail">
         <div class="proxy-io">
@@ -714,7 +717,7 @@
         <span>© 2026–<span id="footer-year"></span></span>
         <span>Все права защищены</span>
         <a class="footer-link" href="https://gorillahacker.pro" target="_blank" rel="noopener">GorillaHacker</a>
-        <span class="muted">Версия: 1.2.0</span>
+        <span class="muted">Версия: 1.2.1</span>
       </div>
       <div class="footer-right">
         <span>CPU приложения: <strong id="footer-cpu-app">-</strong></span>
