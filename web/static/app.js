@@ -477,7 +477,15 @@ function refreshEncodingViews() {
   if (respRender && respRender.classList.contains("active")) {
     renderResponseFrame(respRender, respView.dataset.b64 || "", getEncoding("resp"));
   }
-  if (repeaterResp) renderSimpleView(repeaterResp, "resp");
+  const repeaterRoot = document.getElementById("tab-repeater");
+  const repeaterRespRender = document.getElementById("repeater-resp-render");
+  if (repeaterResp && repeaterRoot) {
+    if (repeaterRespRender && repeaterRespRender.classList.contains("active")) {
+      renderResponseFrame(repeaterRespRender, repeaterResp.dataset.b64 || "", getEncoding("resp"));
+    } else {
+      renderView(repeaterResp, "resp", getActiveDetailMode("resp", repeaterRoot));
+    }
+  }
   if (autoReq) renderSimpleView(autoReq, "req");
   if (autoResp) renderSimpleView(autoResp, "resp");
   if (targetsReq) renderSimpleView(targetsReq, "req");
@@ -1256,6 +1264,89 @@ function setupTargets(projectId) {
     searchPrev.addEventListener("click", findPrevTargetMatch);
   }
 
+  const targetsReqContextMenu = document.getElementById("targets-req-context-menu");
+  const targetsReqCodeView = document.getElementById("targets-req-code-view");
+  if (targetsReqContextMenu && targetsReqCodeView) {
+    targetsReqCodeView.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      targetsReqContextMenu.style.left = e.clientX + "px";
+      targetsReqContextMenu.style.top = e.clientY + "px";
+      targetsReqContextMenu.classList.remove("hidden");
+      requestAnimationFrame(() => {
+        const rect = targetsReqContextMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) targetsReqContextMenu.style.left = (window.innerWidth - rect.width) + "px";
+        if (rect.bottom > window.innerHeight) targetsReqContextMenu.style.top = (window.innerHeight - rect.height) + "px";
+      });
+    });
+    targetsReqContextMenu.querySelectorAll(".context-menu-item").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        targetsReqContextMenu.classList.add("hidden");
+        const reqText = targetsReq?.dataset?.raw || targetsReq?.value || "";
+        if (btn.dataset.action === "repeater") {
+          const repeater = document.getElementById("repeater-req");
+          if (repeater && reqText) {
+            if (typeof createRepeaterTabWithRequest === "function") {
+              createRepeaterTabWithRequest(reqText);
+            } else {
+              updateCodeDisplay(repeater, reqText, true, true);
+            }
+          }
+        } else if (btn.dataset.action === "automator") {
+          const automator = document.getElementById("automator-req");
+          if (automator && reqText) {
+            if (typeof createAutomatorTabWithRequest === "function") {
+              createAutomatorTabWithRequest(reqText);
+            } else {
+              updateCodeDisplay(automator, reqText, true, true);
+            }
+          }
+        } else if (btn.dataset.action === "copy") {
+          const text = targetsReq?.value || reqText;
+          if (text) navigator.clipboard.writeText(text).catch(() => {});
+        }
+      });
+    });
+    document.addEventListener("click", () => targetsReqContextMenu.classList.add("hidden"));
+    document.addEventListener("contextmenu", (e) => {
+      if (!targetsReqContextMenu.contains(e.target) && !targetsReqCodeView.contains(e.target)) {
+        targetsReqContextMenu.classList.add("hidden");
+      }
+    });
+  }
+
+  const targetsRespContextMenu = document.getElementById("targets-resp-context-menu");
+  const targetsRespCodeView = document.getElementById("targets-resp-code-view");
+  if (targetsRespContextMenu && targetsRespCodeView) {
+    targetsRespCodeView.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      targetsRespContextMenu.style.left = e.clientX + "px";
+      targetsRespContextMenu.style.top = e.clientY + "px";
+      targetsRespContextMenu.classList.remove("hidden");
+      requestAnimationFrame(() => {
+        const rect = targetsRespContextMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) targetsRespContextMenu.style.left = (window.innerWidth - rect.width) + "px";
+        if (rect.bottom > window.innerHeight) targetsRespContextMenu.style.top = (window.innerHeight - rect.height) + "px";
+      });
+    });
+    targetsRespContextMenu.querySelectorAll(".context-menu-item").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        targetsRespContextMenu.classList.add("hidden");
+        if (btn.dataset.action === "copy") {
+          const text = targetsResp?.value || targetsResp?.dataset?.raw || "";
+          if (text) navigator.clipboard.writeText(text).catch(() => {});
+        }
+      });
+    });
+    document.addEventListener("click", () => targetsRespContextMenu.classList.add("hidden"));
+    document.addEventListener("contextmenu", (e) => {
+      if (!targetsRespContextMenu.contains(e.target) && !targetsRespCodeView.contains(e.target)) {
+        targetsRespContextMenu.classList.add("hidden");
+      }
+    });
+  }
+
   if (targetsRoot) {
     targetsRoot.querySelectorAll(".detail-tabs .tab").forEach((tab) => {
       tab.addEventListener("click", async () => {
@@ -1587,6 +1678,153 @@ function setupProxy(projectId) {
   let searchMatches = [];
   let searchIndex = 0;
 
+  const filterStorageKey = (pid) => `abp_proxy_filter_${pid}`;
+  function loadProxyFilter(pid) {
+    try {
+      const raw = localStorage.getItem(filterStorageKey(pid));
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      return {
+        requestContains: data.requestContains || "",
+        requestExclude: !!data.requestExclude,
+        method: data.method || "",
+        params: data.params || "",
+        status: data.status || "",
+        mime: data.mime || "",
+        listenerPort: data.listenerPort || "",
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+  function saveProxyFilter(pid, filter) {
+    try {
+      localStorage.setItem(filterStorageKey(pid), JSON.stringify(filter));
+    } catch (_) {}
+  }
+
+  let historyFilter = loadProxyFilter(projectId) || {
+    requestContains: "",
+    requestExclude: false,
+    method: "",
+    params: "",
+    status: "",
+    mime: "",
+    listenerPort: "",
+  };
+
+  const filterModal = document.getElementById("proxy-filter-modal");
+  const filterBtn = document.getElementById("proxy-history-filter-btn");
+  const filterRequest = document.getElementById("proxy-filter-request");
+  const filterRequestExclude = document.getElementById("proxy-filter-request-exclude");
+  const filterMethod = document.getElementById("proxy-filter-method");
+  const filterParams = document.getElementById("proxy-filter-params");
+  const filterStatus = document.getElementById("proxy-filter-status");
+  const filterMime = document.getElementById("proxy-filter-mime");
+  const filterListener = document.getElementById("proxy-filter-listener");
+  const filterApply = document.getElementById("proxy-filter-apply");
+
+  function applyHistoryFilter(list) {
+    return list.filter((it) => {
+      const requestText = `${it.method || ""} ${it.url || ""}`.trim().toLowerCase();
+      const reqContains = (historyFilter.requestContains || "").trim().toLowerCase();
+      if (reqContains) {
+        const matches = requestText.includes(reqContains);
+        if (historyFilter.requestExclude && matches) return false;
+        if (!historyFilter.requestExclude && !matches) return false;
+      }
+      if (historyFilter.method && (it.method || "") !== historyFilter.method) return false;
+      if (historyFilter.params === "get" && !it.has_get) return false;
+      if (historyFilter.params === "post" && !it.has_post) return false;
+      if (historyFilter.params === "any" && !it.has_get && !it.has_post) return false;
+      const status = it.status ?? 0;
+      if (historyFilter.status === "2xx" && (status < 200 || status >= 300)) return false;
+      if (historyFilter.status === "3xx" && (status < 300 || status >= 400)) return false;
+      if (historyFilter.status === "4xx" && (status < 400 || status >= 500)) return false;
+      if (historyFilter.status === "5xx" && (status < 500)) return false;
+      const mime = (it.resp_mime || "").toLowerCase();
+      const mimeFilter = (historyFilter.mime || "").trim().toLowerCase();
+      if (mimeFilter && !mime.includes(mimeFilter)) return false;
+      if (historyFilter.listenerPort) {
+        const port = parseInt(historyFilter.listenerPort, 10);
+        if ((it.listener_port || 0) !== port) return false;
+      }
+      return true;
+    });
+  }
+
+  function openFilterModal() {
+    if (!filterModal) return;
+    filterRequest.value = historyFilter.requestContains;
+    filterRequestExclude.checked = historyFilter.requestExclude;
+    filterMethod.value = historyFilter.method || "";
+    filterParams.value = historyFilter.params || "";
+    filterStatus.value = historyFilter.status || "";
+    filterMime.value = historyFilter.mime || "";
+    filterListener.innerHTML = '<option value="">Все</option>';
+    const ports = new Set();
+    Promise.all([
+      fetch(`/api/projects/listeners?project_id=${projectId}`).then((r) => r.json()),
+      fetch(`/api/projects/history?project_id=${projectId}`).then((r) => r.json()),
+    ])
+      .then(([listeners, historyItems]) => {
+        (Array.isArray(listeners) ? listeners : []).forEach((l) => ports.add(l.port));
+        (Array.isArray(historyItems) ? historyItems : []).forEach((it) => {
+          if (it.listener_port) ports.add(it.listener_port);
+        });
+        [...ports].sort((a, b) => a - b).forEach((port) => {
+          const opt = document.createElement("option");
+          opt.value = port;
+          opt.textContent = `:${port}`;
+          if (String(port) === String(historyFilter.listenerPort)) opt.selected = true;
+          filterListener.appendChild(opt);
+        });
+      })
+      .catch(() => {});
+    filterModal.classList.remove("hidden");
+  }
+
+  function closeFilterModal() {
+    if (filterModal) filterModal.classList.add("hidden");
+  }
+
+  if (filterBtn) {
+    filterBtn.addEventListener("click", openFilterModal);
+  }
+  if (filterModal) {
+    filterModal.querySelectorAll("[data-close]").forEach((el) => {
+      el.addEventListener("click", closeFilterModal);
+    });
+  }
+  const filterClear = document.getElementById("proxy-filter-clear");
+  if (filterClear) {
+    filterClear.addEventListener("click", () => {
+      filterRequest.value = "";
+      filterRequestExclude.checked = false;
+      filterMethod.value = "";
+      filterParams.value = "";
+      filterStatus.value = "";
+      filterMime.value = "";
+      filterListener.value = "";
+    });
+  }
+  if (filterApply) {
+    filterApply.addEventListener("click", () => {
+      historyFilter = {
+        requestContains: filterRequest.value,
+        requestExclude: filterRequestExclude.checked,
+        method: filterMethod.value || "",
+        params: filterParams.value || "",
+        status: filterStatus.value || "",
+        mime: filterMime.value,
+        listenerPort: filterListener.value || "",
+      };
+      saveProxyFilter(projectId, historyFilter);
+      closeFilterModal();
+      loadHistory();
+    });
+  }
+
   function collectMatches(text, target) {
     const needleRaw = (searchInput && searchInput.value || "").trim();
     const needle = needleRaw.toLowerCase();
@@ -1681,6 +1919,7 @@ function setupProxy(projectId) {
       const res = await fetch(`/api/projects/history?project_id=${projectId}`);
       const items = await res.json();
       let list = Array.isArray(items) ? items : [];
+      list = applyHistoryFilter(list);
       list = [...list].sort((a, b) => {
         const va = getSortValue(a, historySortCol);
         const vb = getSortValue(b, historySortCol);
@@ -1834,6 +2073,92 @@ function setupProxy(projectId) {
     });
   }
 
+  const reqContextMenu = document.getElementById("proxy-req-context-menu");
+  const proxyReqCodeView = document.getElementById("proxy-req-code-view");
+  if (reqContextMenu && proxyReqCodeView) {
+    proxyReqCodeView.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      reqContextMenu.style.left = e.clientX + "px";
+      reqContextMenu.style.top = e.clientY + "px";
+      reqContextMenu.classList.remove("hidden");
+      requestAnimationFrame(() => {
+        const rect = reqContextMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) reqContextMenu.style.left = (window.innerWidth - rect.width) + "px";
+        if (rect.bottom > window.innerHeight) reqContextMenu.style.top = (window.innerHeight - rect.height) + "px";
+      });
+    });
+    reqContextMenu.querySelectorAll(".context-menu-item").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        reqContextMenu.classList.add("hidden");
+        if (btn.dataset.action === "repeater") {
+          const repeater = document.getElementById("repeater-req");
+          if (repeater && selectedRequest) {
+            if (typeof createRepeaterTabWithRequest === "function") {
+              createRepeaterTabWithRequest(selectedRequest);
+            } else {
+              updateCodeDisplay(repeater, selectedRequest || "", true, true);
+            }
+          }
+        } else if (btn.dataset.action === "automator") {
+          const automator = document.getElementById("automator-req");
+          if (automator && selectedRequest) {
+            if (typeof createAutomatorTabWithRequest === "function") {
+              createAutomatorTabWithRequest(selectedRequest);
+            } else {
+              updateCodeDisplay(automator, selectedRequest || "", true, true);
+            }
+          }
+        } else if (btn.dataset.action === "copy") {
+          const text = selectedRequest || reqView?.value || "";
+          if (text) {
+            navigator.clipboard.writeText(text).catch(() => {});
+          }
+        }
+      });
+    });
+    document.addEventListener("click", () => reqContextMenu.classList.add("hidden"));
+    document.addEventListener("contextmenu", (e) => {
+      if (!reqContextMenu.contains(e.target) && !proxyReqCodeView.contains(e.target)) {
+        reqContextMenu.classList.add("hidden");
+      }
+    });
+  }
+
+  const respContextMenu = document.getElementById("proxy-resp-context-menu");
+  const proxyRespCodeView = document.getElementById("proxy-resp-code-view");
+  if (respContextMenu && proxyRespCodeView) {
+    proxyRespCodeView.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      respContextMenu.style.left = e.clientX + "px";
+      respContextMenu.style.top = e.clientY + "px";
+      respContextMenu.classList.remove("hidden");
+      requestAnimationFrame(() => {
+        const rect = respContextMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) respContextMenu.style.left = (window.innerWidth - rect.width) + "px";
+        if (rect.bottom > window.innerHeight) respContextMenu.style.top = (window.innerHeight - rect.height) + "px";
+      });
+    });
+    respContextMenu.querySelectorAll(".context-menu-item").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        respContextMenu.classList.add("hidden");
+        if (btn.dataset.action === "copy") {
+          const text = selectedResponse || respView?.value || "";
+          if (text) {
+            navigator.clipboard.writeText(text).catch(() => {});
+          }
+        }
+      });
+    });
+    document.addEventListener("click", () => respContextMenu.classList.add("hidden"));
+    document.addEventListener("contextmenu", (e) => {
+      if (!respContextMenu.contains(e.target) && !proxyRespCodeView.contains(e.target)) {
+        respContextMenu.classList.add("hidden");
+      }
+    });
+  }
+
   if (searchInput) {
     searchInput.addEventListener("input", refreshSearchMatches);
   }
@@ -1856,7 +2181,7 @@ function setupProxy(projectId) {
     });
   }
 
-  document.querySelectorAll(".detail-tabs .tab").forEach((tab) => {
+  proxyRoot.querySelectorAll(".detail-tabs .tab").forEach((tab) => {
     tab.addEventListener("click", async () => {
       if (tab.dataset.detail.startsWith("req")) {
         await renderView(reqView, "req", tab.dataset.detail.endsWith("hex") ? "hex" : tab.dataset.detail.endsWith("pretty") ? "pretty" : "raw");
@@ -1975,6 +2300,56 @@ function setupInterceptor(projectId) {
     loadQueue();
   });
 
+  const interceptContextMenu = document.getElementById("intercept-editor-context-menu");
+  const interceptCodeView = document.getElementById("intercept-editor-code-view");
+  if (interceptContextMenu && interceptCodeView) {
+    interceptCodeView.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      interceptContextMenu.style.left = e.clientX + "px";
+      interceptContextMenu.style.top = e.clientY + "px";
+      interceptContextMenu.classList.remove("hidden");
+      requestAnimationFrame(() => {
+        const rect = interceptContextMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) interceptContextMenu.style.left = (window.innerWidth - rect.width) + "px";
+        if (rect.bottom > window.innerHeight) interceptContextMenu.style.top = (window.innerHeight - rect.height) + "px";
+      });
+    });
+    interceptContextMenu.querySelectorAll(".context-menu-item").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        interceptContextMenu.classList.add("hidden");
+        const reqText = editor?.value || "";
+        if (btn.dataset.action === "repeater") {
+          const repeater = document.getElementById("repeater-req");
+          if (repeater && reqText) {
+            if (typeof createRepeaterTabWithRequest === "function") {
+              createRepeaterTabWithRequest(reqText);
+            } else {
+              updateCodeDisplay(repeater, reqText, true, true);
+            }
+          }
+        } else if (btn.dataset.action === "automator") {
+          const automator = document.getElementById("automator-req");
+          if (automator && reqText) {
+            if (typeof createAutomatorTabWithRequest === "function") {
+              createAutomatorTabWithRequest(reqText);
+            } else {
+              updateCodeDisplay(automator, reqText, true, true);
+            }
+          }
+        } else if (btn.dataset.action === "copy") {
+          if (reqText) navigator.clipboard.writeText(reqText).catch(() => {});
+        }
+      });
+    });
+    document.addEventListener("click", () => interceptContextMenu.classList.add("hidden"));
+    document.addEventListener("contextmenu", (e) => {
+      if (!interceptContextMenu.contains(e.target) && !interceptCodeView.contains(e.target)) {
+        interceptContextMenu.classList.add("hidden");
+      }
+    });
+  }
+
   loadQueue();
   setInterval(loadQueue, 3000);
 }
@@ -1982,6 +2357,8 @@ function setupInterceptor(projectId) {
 function setupRepeater(projectId) {
   const req = document.getElementById("repeater-req");
   const resp = document.getElementById("repeater-resp");
+  const repeaterRoot = document.getElementById("tab-repeater");
+  const repeaterRespRender = document.getElementById("repeater-resp-render");
   const sendBtn = document.getElementById("repeater-send");
   const cancelBtn = document.getElementById("repeater-cancel");
   const tabList = document.getElementById("repeater-tab-list");
@@ -2027,6 +2404,25 @@ function setupRepeater(projectId) {
 
   function getActiveTab(state) {
     return state.tabs.find((t) => t.id === state.activeId) || state.tabs[0];
+  }
+
+  async function renderRepeaterResp() {
+    if (!repeaterRoot) return;
+    const activeTab = repeaterRoot.querySelector(".detail-tabs .tab.active[data-detail^='resp']");
+    const detail = activeTab?.dataset?.detail || "resp-pretty";
+    if (detail.endsWith("render")) {
+      const codeView = resp.closest(".code-view");
+      if (codeView) codeView.style.display = "none";
+      if (repeaterRespRender) {
+        repeaterRespRender.classList.add("active");
+        await renderResponseFrame(repeaterRespRender, resp.dataset.b64 || "", getEncoding("resp"));
+      }
+    } else {
+      if (repeaterRespRender) repeaterRespRender.classList.remove("active");
+      const codeView = resp.closest(".code-view");
+      if (codeView) codeView.style.display = "";
+      await renderView(resp, "resp", detail.endsWith("hex") ? "hex" : detail.endsWith("pretty") ? "pretty" : "raw");
+    }
   }
 
   async function postRepeater(url, payload) {
@@ -2145,7 +2541,7 @@ function setupRepeater(projectId) {
         resp.dataset.raw = item.resp_raw || "";
         resp.dataset.hex = item.resp_hex || "";
         resp.dataset.b64 = item.resp_b64 || "";
-        await renderSimpleView(resp, "resp");
+        await renderRepeaterResp();
         lenEl.innerText = `${item.resp_len || 0}`;
         timeEl.innerText = `${item.duration_ms || item.duration || 0}`;
         refreshSearchMatches();
@@ -2277,7 +2673,7 @@ function setupRepeater(projectId) {
       resp.dataset.raw = data.resp_raw;
       resp.dataset.hex = data.resp_hex;
       resp.dataset.b64 = data.resp_b64 || "";
-      await renderSimpleView(resp, "resp");
+      await renderRepeaterResp();
       lenEl.innerText = `${data.resp_len || 0}`;
       timeEl.innerText = `${data.duration || 0}`;
       addHistoryEntry({
@@ -2329,6 +2725,28 @@ function setupRepeater(projectId) {
     searchPrev.addEventListener("click", findPrevMatch);
   }
 
+  if (repeaterRoot) {
+    repeaterRoot.querySelectorAll(".detail-tabs .tab[data-detail^='resp']").forEach((tab) => {
+      tab.addEventListener("click", async () => {
+        const detail = tab.dataset.detail || "";
+        if (detail.endsWith("render")) {
+          const codeView = resp.closest(".code-view");
+          if (codeView) codeView.style.display = "none";
+          if (repeaterRespRender) {
+            repeaterRespRender.classList.add("active");
+            await renderResponseFrame(repeaterRespRender, resp.dataset.b64 || "", getEncoding("resp"));
+          }
+        } else {
+          if (repeaterRespRender) repeaterRespRender.classList.remove("active");
+          const codeView = resp.closest(".code-view");
+          if (codeView) codeView.style.display = "";
+          await renderView(resp, "resp", detail.endsWith("hex") ? "hex" : detail.endsWith("pretty") ? "pretty" : "raw");
+        }
+        refreshSearchMatches();
+      });
+    });
+  }
+
   function loadTabsFromServer(presetReq) {
     fetch(`/api/projects/repeater/tabs?project_id=${projectId}`)
       .then((res) => res.json())
@@ -2374,7 +2792,7 @@ function setupRepeater(projectId) {
           resp.dataset.raw = data.draft.resp_raw || "";
           resp.dataset.hex = data.draft.resp_hex || "";
           resp.dataset.b64 = data.draft.resp_b64 || "";
-          await renderSimpleView(resp, "resp");
+          await renderRepeaterResp();
           lenEl.innerText = `${data.draft.resp_len || 0}`;
           timeEl.innerText = `${data.draft.duration_ms || 0}`;
         } else if (tab.history.length > 0) {
@@ -2383,7 +2801,7 @@ function setupRepeater(projectId) {
           resp.dataset.raw = latest.resp_raw || "";
           resp.dataset.hex = latest.resp_hex || "";
           resp.dataset.b64 = latest.resp_b64 || "";
-          await renderSimpleView(resp, "resp");
+          await renderRepeaterResp();
           lenEl.innerText = `${latest.resp_len || 0}`;
           timeEl.innerText = `${latest.duration_ms || 0}`;
         } else {
@@ -3228,6 +3646,59 @@ function setupAutomator(projectId) {
   [attackSel, rateInput, delayInput, jitterInput].forEach((el) => {
     el.addEventListener("input", scheduleDraft);
   });
+
+  const automatorReqContextMenu = document.getElementById("automator-req-context-menu");
+  const automatorReqCodeView = document.getElementById("automator-req-code-view");
+  let savedContextMenuSelection = { start: 0, end: 0 };
+  if (automatorReqContextMenu && automatorReqCodeView) {
+    automatorReqCodeView.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      savedContextMenuSelection = { start: req.selectionStart, end: req.selectionEnd };
+      automatorReqContextMenu.style.left = e.clientX + "px";
+      automatorReqContextMenu.style.top = e.clientY + "px";
+      automatorReqContextMenu.classList.remove("hidden");
+      requestAnimationFrame(() => {
+        const rect = automatorReqContextMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) automatorReqContextMenu.style.left = (window.innerWidth - rect.width) + "px";
+        if (rect.bottom > window.innerHeight) automatorReqContextMenu.style.top = (window.innerHeight - rect.height) + "px";
+      });
+    });
+    automatorReqContextMenu.querySelectorAll(".context-menu-item").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        automatorReqContextMenu.classList.add("hidden");
+        req.focus();
+        const start = savedContextMenuSelection.start;
+        const end = savedContextMenuSelection.end;
+        const text = req.value || "";
+        if (btn.dataset.action === "add-position") {
+          let newText;
+          if (start !== end && end > start) {
+            const selected = text.slice(start, end);
+            newText = text.slice(0, start) + "§" + selected + "§" + text.slice(end);
+          } else {
+            newText = text.slice(0, start) + "§§" + text.slice(start);
+          }
+          req.value = newText;
+          updateCodeDisplay(req, newText, true, true);
+          updatePositionsFromRequest();
+          scheduleDraft();
+        } else if (btn.dataset.action === "clear-positions") {
+          const cleared = text.replace(/§/g, "");
+          req.value = cleared;
+          updateCodeDisplay(req, cleared, true, true);
+          updatePositionsFromRequest();
+          scheduleDraft();
+        }
+      });
+    });
+    document.addEventListener("click", () => automatorReqContextMenu.classList.add("hidden"));
+    document.addEventListener("contextmenu", (e) => {
+      if (!automatorReqContextMenu.contains(e.target) && !automatorReqCodeView.contains(e.target)) {
+        automatorReqContextMenu.classList.add("hidden");
+      }
+    });
+  }
 
   loadTabsFromServer();
 }
