@@ -83,13 +83,18 @@
                 <button class="tab" data-detail="targets-req-raw">Raw</button>
                 <button class="tab" data-detail="targets-req-hex">HEX</button>
               </div>
-              <div class="code-view">
+              <div class="code-view" id="targets-req-code-view">
                 <div class="code-scroll">
                   <div class="code-inner">
                     <pre class="code-display" id="targets-req-display"></pre>
                     <textarea id="targets-req" class="code"></textarea>
                   </div>
                 </div>
+              </div>
+              <div id="targets-req-context-menu" class="context-menu hidden">
+                <button type="button" class="context-menu-item" data-action="repeater">Отправить в повторитель</button>
+                <button type="button" class="context-menu-item" data-action="automator">Отправить в автоматизатор</button>
+                <button type="button" class="context-menu-item" data-action="copy">Копировать</button>
               </div>
             </div>
             <div class="targets-detail-block">
@@ -100,13 +105,16 @@
                 <button class="tab" data-detail="targets-resp-hex">HEX</button>
                 <button class="tab" data-detail="targets-resp-render">Render</button>
               </div>
-              <div class="code-view">
+              <div class="code-view" id="targets-resp-code-view">
                 <div class="code-scroll">
                   <div class="code-inner">
                     <pre class="code-display" id="targets-resp-display"></pre>
                     <textarea id="targets-resp" class="code"></textarea>
                   </div>
                 </div>
+              </div>
+              <div id="targets-resp-context-menu" class="context-menu hidden">
+                <button type="button" class="context-menu-item" data-action="copy">Копировать</button>
               </div>
               <iframe id="targets-resp-render" class="render-frame" title="Ответ Render"></iframe>
             </div>
@@ -132,7 +140,10 @@
 
     <section class="card tab-panel active" id="tab-proxy">
       <h2>Прокси</h2>
-      <h3>История запросов</h3>
+      <div class="history-header">
+        <h3>История запросов</h3>
+        <button class="btn" id="proxy-history-filter-btn">Фильтр</button>
+      </div>
       <div class="history-list proxy-history-list">
         <table class="history-table">
           <colgroup>
@@ -179,13 +190,18 @@
                 </div>
               </div>
             </div>
-            <div class="code-view">
+            <div class="code-view" id="proxy-req-code-view">
               <div class="code-scroll">
                 <div class="code-inner">
                   <pre class="code-display" id="req-view-display"></pre>
                   <textarea id="req-view" class="code"></textarea>
                 </div>
               </div>
+            </div>
+            <div id="proxy-req-context-menu" class="context-menu hidden">
+              <button type="button" class="context-menu-item" data-action="repeater">Отправить в повторитель</button>
+              <button type="button" class="context-menu-item" data-action="automator">Отправить в автоматизатор</button>
+              <button type="button" class="context-menu-item" data-action="copy">Копировать</button>
             </div>
           </div>
           <div class="proxy-io-col">
@@ -195,13 +211,16 @@
               <button class="tab" data-detail="resp-hex">HEX</button>
               <button class="tab" data-detail="resp-render">Render</button>
             </div>
-            <div class="code-view">
+            <div class="code-view" id="proxy-resp-code-view">
               <div class="code-scroll">
                 <div class="code-inner">
                   <pre class="code-display" id="resp-view-display"></pre>
                   <textarea id="resp-view" class="code"></textarea>
                 </div>
               </div>
+            </div>
+            <div id="proxy-resp-context-menu" class="context-menu hidden">
+              <button type="button" class="context-menu-item" data-action="copy">Копировать</button>
             </div>
             <iframe id="resp-render" class="render-frame" title="Ответ Render"></iframe>
           </div>
@@ -215,6 +234,73 @@
             <option value="both">В запросе и ответе</option>
           </select>
           <button class="btn" id="proxy-search-next">Следующее</button>
+        </div>
+      </div>
+
+      <div id="proxy-filter-modal" class="modal hidden">
+        <div class="modal-backdrop" data-close></div>
+        <div class="modal-content proxy-filter-content">
+          <div class="modal-header">
+            <h3>Фильтр</h3>
+            <button class="btn" data-close>Закрыть</button>
+          </div>
+          <div class="proxy-filter-form">
+            <div class="filter-row">
+              <label>Запрос (содержит)</label>
+              <input type="text" id="proxy-filter-request" placeholder="Текст для поиска в запросе" />
+              <label class="checkbox-inline filter-checkbox-row">
+                <input type="checkbox" id="proxy-filter-request-exclude" />
+                Исключить совпадения
+              </label>
+            </div>
+            <div class="filter-row">
+              <label>Тип запроса</label>
+              <select id="proxy-filter-method">
+                <option value="">Все</option>
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+                <option value="PATCH">PATCH</option>
+                <option value="HEAD">HEAD</option>
+                <option value="OPTIONS">OPTIONS</option>
+                <option value="CONNECT">CONNECT</option>
+              </select>
+            </div>
+            <div class="filter-row">
+              <label>Параметры</label>
+              <select id="proxy-filter-params">
+                <option value="">Все</option>
+                <option value="get">С GET-параметрами</option>
+                <option value="post">С POST-параметрами</option>
+                <option value="any">С любыми параметрами</option>
+              </select>
+            </div>
+            <div class="filter-row">
+              <label>Статус</label>
+              <select id="proxy-filter-status">
+                <option value="">Все</option>
+                <option value="2xx">2xx</option>
+                <option value="3xx">3xx</option>
+                <option value="4xx">4xx</option>
+                <option value="5xx">5xx</option>
+              </select>
+            </div>
+            <div class="filter-row">
+              <label>MIME</label>
+              <input type="text" id="proxy-filter-mime" placeholder="Тип MIME (содержит)" />
+            </div>
+            <div class="filter-row">
+              <label>Слушатель</label>
+              <select id="proxy-filter-listener">
+                <option value="">Все</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-actions proxy-filter-actions">
+            <button class="btn" id="proxy-filter-clear">Очистить</button>
+            <button class="btn primary" id="proxy-filter-apply">Применить</button>
+          </div>
         </div>
       </div>
     </section>
@@ -235,13 +321,18 @@
         </div>
         <div>
           <h3>Редактор запроса</h3>
-          <div class="code-view">
+          <div class="code-view" id="intercept-editor-code-view">
             <div class="code-scroll">
               <div class="code-inner">
                 <pre class="code-display" id="intercept-editor-display"></pre>
                 <textarea id="intercept-editor" class="code"></textarea>
               </div>
             </div>
+          </div>
+          <div id="intercept-editor-context-menu" class="context-menu hidden">
+            <button type="button" class="context-menu-item" data-action="repeater">Отправить в повторитель</button>
+            <button type="button" class="context-menu-item" data-action="automator">Отправить в автоматизатор</button>
+            <button type="button" class="context-menu-item" data-action="copy">Копировать</button>
           </div>
           <div class="actions intercept-actions">
             <button class="btn primary" id="intercept-send">Отправить</button>
@@ -271,7 +362,13 @@
         </div>
         <div>
           <h3>Ответ</h3>
-          <div class="code-view">
+          <div class="detail-tabs">
+            <button class="tab active" data-detail="resp-pretty">Pretty</button>
+            <button class="tab" data-detail="resp-raw">Raw</button>
+            <button class="tab" data-detail="resp-hex">HEX</button>
+            <button class="tab" data-detail="resp-render">Render</button>
+          </div>
+          <div class="code-view" id="repeater-resp-code-view">
             <div class="code-scroll">
               <div class="code-inner">
                 <pre class="code-display" id="repeater-resp-display"></pre>
@@ -279,6 +376,7 @@
               </div>
             </div>
           </div>
+          <iframe id="repeater-resp-render" class="render-frame" title="Ответ Render"></iframe>
         </div>
       </div>
       <div class="repeater-toolbar">
@@ -324,13 +422,17 @@
             <h3>Запрос</h3>
             <span class="help-dot" title="Используйте маркеры §значение§ для позиций">?</span>
           </div>
-          <div class="code-view">
+          <div class="code-view" id="automator-req-code-view">
             <div class="code-scroll">
               <div class="code-inner">
                 <pre class="code-display" id="automator-req-display"></pre>
                 <textarea id="automator-req" class="code"></textarea>
               </div>
             </div>
+          </div>
+          <div id="automator-req-context-menu" class="context-menu hidden">
+            <button type="button" class="context-menu-item" data-action="add-position">Добавить позицию</button>
+            <button type="button" class="context-menu-item" data-action="clear-positions">Очистить позиции</button>
           </div>
         </div>
         <div class="automator-positions">
@@ -612,7 +714,7 @@
         <span>© 2026–<span id="footer-year"></span></span>
         <span>Все права защищены</span>
         <a class="footer-link" href="https://gorillahacker.pro" target="_blank" rel="noopener">GorillaHacker</a>
-        <span class="muted">Версия: 1.1.0</span>
+        <span class="muted">Версия: 1.2.0</span>
       </div>
       <div class="footer-right">
         <span>CPU приложения: <strong id="footer-cpu-app">-</strong></span>
