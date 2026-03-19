@@ -432,7 +432,8 @@ textarea.code {
 .automator-request .code-view {
   height: 374px;
   min-height: 374px;
-  flex-shrink: 0;
+  max-height: 374px;
+  flex: 0 0 374px;
   overflow: hidden;
   display: block;
 }
@@ -489,6 +490,7 @@ textarea.code {
   min-height: 0;
   min-width: 0;
 }
+
 
 .proxy-io,
 .targets-detail,
@@ -915,6 +917,63 @@ th {
 
 .context-menu-item:hover {
   background: var(--table-row-hover);
+}
+
+.encode-decode-popup {
+  position: fixed;
+  z-index: 1100;
+  min-width: 280px;
+  max-width: 480px;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.encode-decode-popup.hidden {
+  display: none;
+}
+
+.encode-decode-row {
+  display: flex;
+  gap: 8px;
+}
+
+.encode-decode-row select {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border-input);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.encode-decode-result {
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: monospace;
+  background: var(--input-bg);
+  border: 1px solid var(--border-input);
+  border-radius: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+  word-break: break-all;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.encode-decode-result:hover {
+  background: var(--table-row-hover);
+}
+
+.encode-decode-result:empty::before {
+  content: "—";
+  color: var(--text-muted);
 }
 
 .list {
@@ -1425,6 +1484,18 @@ th {
   box-sizing: border-box;
 }
 
+.targets-detail-block .code-view.code-highlight-mode.code-view-pretty {
+  height: 350px;
+  min-height: 350px;
+  max-height: 350px;
+  flex: 0 0 350px;
+}
+
+.targets-detail-block .code-view.code-highlight-mode.code-view-pretty .code-scroll,
+.targets-detail-block .code-view.code-highlight-mode.code-view-pretty .code-inner {
+  min-height: 350px;
+}
+
 #targets-req,
 #targets-resp {
   width: 100%;
@@ -1670,4 +1741,72 @@ th {
   display: flex;
   gap: 6px;
   align-items: center;
+}
+
+.form-row {
+  margin-bottom: 12px;
+}
+.form-row label {
+  display: block;
+  margin-bottom: 4px;
+}
+.form-row .full-width {
+  width: 100%;
+}
+.form-row select[multiple] {
+  min-height: 80px;
+  width: 100%;
+}
+
+.routing-actions {
+  white-space: nowrap;
+}
+.routing-actions .icon-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  min-width: auto;
+}
+.routing-table td {
+  vertical-align: middle;
+}
+
+.routing-modal-content .modal-form {
+  display: block;
+}
+
+.settings-table-wrap {
+  width: 100%;
+  min-width: 0;
+}
+
+.proxy-table,
+.routing-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 100%;
+}
+
+.proxy-table th:first-child,
+.proxy-table td:first-child,
+.routing-table th:first-child,
+.routing-table td:first-child {
+  width: auto;
+}
+
+.proxy-table th:last-child,
+.proxy-table td:last-child,
+.routing-table th:last-child,
+.routing-table td:last-child {
+  white-space: nowrap;
+}
+
+.proxy-table td:last-child .btn,
+.routing-table td:last-child .btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  margin-right: 4px;
+}
+
+.routing-table .routing-actions {
+  white-space: nowrap;
 }

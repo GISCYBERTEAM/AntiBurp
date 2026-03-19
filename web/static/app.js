@@ -24,6 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const projectId = projectEl.getAttribute("data-project-id");
     setupEncodingSettings(projectId);
     setupTabs(projectId);
+    setupEncodeDecodePopup();
     setupTargets(projectId);
     setupProxy(projectId);
     setupProjectSettings(projectId);
@@ -834,6 +835,335 @@ function setupTabs(projectId) {
   }
 }
 
+function setupEncodeDecodePopup() {
+  const popup = document.getElementById("encode-decode-popup");
+  const actionSel = document.getElementById("encode-decode-action");
+  const formatSel = document.getElementById("encode-decode-format");
+  const resultEl = document.getElementById("encode-decode-result");
+  if (!popup || !actionSel || !formatSel || !resultEl) return;
+
+  let lastSelectedText = "";
+  const MAX_RESULT_DISPLAY = 500;
+
+  function decodeUrl(s) {
+    try {
+      return decodeURIComponent(s.replace(/\+/g, " "));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function encodeUrl(s) {
+    try {
+      return encodeURIComponent(s);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function decodeHtml(s) {
+    const el = document.createElement("textarea");
+    el.innerHTML = s;
+    return el.value;
+  }
+
+  function encodeHtml(s) {
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function decodeBase64Str(s) {
+    try {
+      return atob(s.replace(/\s/g, ""));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function encodeBase64Str(s) {
+    try {
+      return btoa(s);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function decodeHex(s) {
+    const clean = s.replace(/\s/g, "").replace(/^0x/i, "");
+    if (clean.length % 2) return null;
+    try {
+      const bytes = [];
+      for (let i = 0; i < clean.length; i += 2) {
+        bytes.push(parseInt(clean.substr(i, 2), 16));
+      }
+      return new TextDecoder().decode(new Uint8Array(bytes));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function encodeHex(s) {
+    const bytes = new TextEncoder().encode(s);
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  function decodeOctal(s) {
+    const clean = s.replace(/\s/g, "");
+    try {
+      const bytes = [];
+      for (let i = 0; i < clean.length; i += 3) {
+        const chunk = clean.substr(i, 3);
+        if (chunk.length < 3) break;
+        bytes.push(parseInt(chunk, 8));
+      }
+      return new TextDecoder().decode(new Uint8Array(bytes));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function encodeOctal(s) {
+    const bytes = new TextEncoder().encode(s);
+    return Array.from(bytes)
+      .map((b) => b.toString(8).padStart(3, "0"))
+      .join("");
+  }
+
+  function decodeBinary(s) {
+    const clean = s.replace(/\s/g, "");
+    if (clean.length % 8) return null;
+    try {
+      const bytes = [];
+      for (let i = 0; i < clean.length; i += 8) {
+        bytes.push(parseInt(clean.substr(i, 8), 2));
+      }
+      return new TextDecoder().decode(new Uint8Array(bytes));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function encodeBinary(s) {
+    const bytes = new TextEncoder().encode(s);
+    return Array.from(bytes)
+      .map((b) => b.toString(2).padStart(8, "0"))
+      .join("");
+  }
+
+  function decodeAscii(s) {
+    const clean = s.replace(/\s/g, "");
+    if (clean.length % 2) return null;
+    try {
+      const bytes = [];
+      for (let i = 0; i < clean.length; i += 2) {
+        bytes.push(parseInt(clean.substr(i, 2), 16));
+      }
+      return new TextDecoder().decode(new Uint8Array(bytes));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function encodeAscii(s) {
+    const bytes = new TextEncoder().encode(s);
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  async function decompressGzip(bytes) {
+    try {
+      const ds = new DecompressionStream("gzip");
+      const blob = new Blob([bytes]);
+      const stream = blob.stream().pipeThrough(ds);
+      const result = await new Response(stream).arrayBuffer();
+      return new TextDecoder().decode(new Uint8Array(result));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function compressGzip(s) {
+    try {
+      const cs = new CompressionStream("gzip");
+      const blob = new Blob([new TextEncoder().encode(s)]);
+      const stream = blob.stream().pipeThrough(cs);
+      const result = await new Response(stream).arrayBuffer();
+      return Array.from(new Uint8Array(result))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function computeResult() {
+    const action = actionSel.value;
+    const format = formatSel.value;
+    const text = lastSelectedText;
+    if (!text) {
+      resultEl.textContent = "";
+      resultEl.dataset.fullResult = "";
+      return;
+    }
+    let result = null;
+    if (action === "decode") {
+      switch (format) {
+        case "url":
+          result = decodeUrl(text);
+          break;
+        case "html":
+          result = decodeHtml(text);
+          break;
+        case "base64":
+          result = decodeBase64Str(text);
+          break;
+        case "ascii":
+          result = decodeAscii(text);
+          break;
+        case "hex":
+          result = decodeHex(text);
+          break;
+        case "octal":
+          result = decodeOctal(text);
+          break;
+        case "binary":
+          result = decodeBinary(text);
+          break;
+        case "gzip":
+          (async () => {
+            try {
+              const clean = text.replace(/\s/g, "");
+              let bytes;
+              if (/^[0-9a-fA-F]+$/.test(clean)) {
+                bytes = new Uint8Array(clean.match(/.{1,2}/g).map((b) => parseInt(b, 16)));
+              } else {
+                const binary = atob(clean);
+                bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              }
+              resultEl.textContent = "…";
+              const r = await decompressGzip(bytes);
+              const full = r || "(ошибка декодирования)";
+              resultEl.dataset.fullResult = full;
+              resultEl.textContent =
+                full.length > MAX_RESULT_DISPLAY
+                  ? full.slice(0, MAX_RESULT_DISPLAY) + "…"
+                  : full;
+            } catch (_) {
+              resultEl.dataset.fullResult = "(ошибка)";
+              resultEl.textContent = "(ошибка декодирования)";
+            }
+          })();
+          return;
+        default:
+          result = text;
+      }
+    } else {
+      switch (format) {
+        case "url":
+          result = encodeUrl(text);
+          break;
+        case "html":
+          result = encodeHtml(text);
+          break;
+        case "base64":
+          result = encodeBase64Str(text);
+          break;
+        case "ascii":
+          result = encodeAscii(text);
+          break;
+        case "hex":
+          result = encodeHex(text);
+          break;
+        case "octal":
+          result = encodeOctal(text);
+          break;
+        case "binary":
+          result = encodeBinary(text);
+          break;
+        case "gzip":
+          (async () => {
+            resultEl.textContent = "…";
+            const r = await compressGzip(text);
+            const full = r || "(ошибка кодирования)";
+            resultEl.dataset.fullResult = full;
+            resultEl.textContent =
+              full.length > MAX_RESULT_DISPLAY
+                ? full.slice(0, MAX_RESULT_DISPLAY) + "…"
+                : full;
+          })();
+          return;
+        default:
+          result = text;
+      }
+    }
+    const full = result !== null ? String(result) : "(ошибка)";
+    resultEl.dataset.fullResult = full;
+    resultEl.textContent =
+      full.length > MAX_RESULT_DISPLAY
+        ? full.slice(0, MAX_RESULT_DISPLAY) + "…"
+        : full;
+  }
+
+  actionSel.addEventListener("change", computeResult);
+  formatSel.addEventListener("change", computeResult);
+
+  resultEl.addEventListener("click", () => {
+    const full = resultEl.dataset.fullResult || "";
+    if (full && full !== "(ошибка)" && full !== "(ошибка декодирования)" && full !== "(ошибка кодирования)") {
+      navigator.clipboard.writeText(full).then(() => {
+        const origDisplay = resultEl.textContent;
+        resultEl.textContent = "Скопировано";
+        setTimeout(() => {
+          resultEl.textContent = origDisplay;
+        }, 600);
+      }).catch(() => {});
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!popup.contains(e.target)) {
+      popup.classList.add("hidden");
+    }
+  });
+
+  function showPopupAt(e, selectedText) {
+    lastSelectedText = selectedText;
+    popup.classList.remove("hidden");
+    popup.style.left = e.clientX + "px";
+    popup.style.top = e.clientY + "px";
+    requestAnimationFrame(() => {
+      const rect = popup.getBoundingClientRect();
+      if (rect.right > window.innerWidth) popup.style.left = window.innerWidth - rect.width + "px";
+      if (rect.bottom > window.innerHeight) popup.style.top = window.innerHeight - rect.height + "px";
+    });
+    computeResult();
+  }
+
+  document.querySelectorAll(".code-view").forEach((codeView) => {
+    codeView.addEventListener(
+      "contextmenu",
+      (e) => {
+        const sel = window.getSelection();
+        const selectedText = (sel && sel.toString ? sel.toString() : "").trim();
+        if (selectedText) {
+          e.preventDefault();
+          e.stopPropagation();
+          showPopupAt(e, selectedText);
+        }
+      },
+      true
+    );
+  });
+}
+
 function setupTargets(projectId) {
   const targetsRoot = document.getElementById("tab-targets");
   const domainList = document.getElementById("targets-domain-list");
@@ -1377,80 +1707,281 @@ function setupTargets(projectId) {
 }
 
 function setupProjectSettings(projectId) {
-  const enabled = document.getElementById("project-proxy-enabled");
-  const type = document.getElementById("project-proxy-type");
-  const host = document.getElementById("project-proxy-host");
-  const port = document.getElementById("project-proxy-port");
-  const user = document.getElementById("project-proxy-user");
-  const pass = document.getElementById("project-proxy-pass");
-  const saveBtn = document.getElementById("project-proxy-save");
+  const proxyList = document.getElementById("proxy-list");
+  const proxyAddBtn = document.getElementById("proxy-add");
+  const routingList = document.getElementById("routing-rules-list");
+  const routingAddBtn = document.getElementById("routing-rule-add");
+  const proxyModal = document.getElementById("proxy-modal");
+  const proxyModalTitle = document.getElementById("proxy-modal-title");
+  const proxyModalName = document.getElementById("proxy-modal-name");
+  const proxyModalType = document.getElementById("proxy-modal-type");
+  const proxyModalHost = document.getElementById("proxy-modal-host");
+  const proxyModalPort = document.getElementById("proxy-modal-port");
+  const proxyModalUser = document.getElementById("proxy-modal-user");
+  const proxyModalPass = document.getElementById("proxy-modal-pass");
+  const proxyModalSave = document.getElementById("proxy-modal-save");
+  const routingModal = document.getElementById("routing-rule-modal");
+  const routingModalTitle = document.getElementById("routing-rule-modal-title");
+  const routingRuleIp = document.getElementById("routing-rule-ip");
+  const routingRuleCondition = document.getElementById("routing-rule-condition");
+  const routingRuleListeners = document.getElementById("routing-rule-listeners");
+  const routingRuleProxy = document.getElementById("routing-rule-proxy");
+  const routingRuleActive = document.getElementById("routing-rule-active");
+  const routingRuleSave = document.getElementById("routing-rule-modal-save");
   const exportBtn = document.getElementById("project-export");
   const importInput = document.getElementById("project-import");
   const clearBtn = document.getElementById("project-clear");
-  if (!enabled || !type || !host || !port || !user || !pass) return;
+  if (!proxyList || !routingList) return;
 
-  async function loadProxySettings() {
+  let editingProxyId = null;
+  let editingRuleId = null;
+
+  async function loadProxies() {
     try {
-      const res = await fetch(`/api/projects/proxy-settings?project_id=${projectId}`);
-      const data = await res.json();
-      enabled.checked = !!data.enabled;
-      type.value = data.type || "http";
-      host.value = data.host || "";
-      port.value = data.port || "";
-      user.value = data.user || "";
-      pass.value = data.pass || "";
-    } catch (err) {}
-  }
-
-  function validateProxyFields() {
-    const proxyType = type.value;
-    const proxyHost = host.value.trim();
-    const proxyPort = parseInt(port.value || "0", 10);
-    if (proxyType !== "http" && proxyType !== "socks5") {
-      alert("Укажите тип прокси.");
-      return false;
-    }
-    if (!proxyHost || !proxyPort) {
-      alert("Укажите хост и порт для прокси.");
-      return false;
-    }
-    return true;
-  }
-
-  async function saveProxySettings() {
-    const payload = {
-      enabled: enabled.checked,
-      type: type.value,
-      host: host.value.trim(),
-      port: parseInt(port.value || "0", 10),
-      user: user.value.trim(),
-      pass: pass.value,
-    };
-    try {
-      const res = await fetch(`/api/projects/proxy-settings?project_id=${projectId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const res = await fetch(`/api/projects/proxies?project_id=${projectId}`);
+      const proxies = await res.json();
+      proxyList.innerHTML = "";
+      (proxies || []).forEach((p) => {
+        const row = document.createElement("tr");
+        const auth = p.user ? `${p.user}:***` : "—";
+        row.innerHTML = `
+          <td>${escapeHtml(p.name || "—")}</td>
+          <td>${p.type || "http"}</td>
+          <td>${escapeHtml(p.host || "")}:${p.port || 0}</td>
+          <td>${auth}</td>
+          <td>
+            <button class="btn" data-edit-proxy="${p.id}">Изменить</button>
+            <button class="btn danger" data-delete-proxy="${p.id}">Удалить</button>
+          </td>
+        `;
+        row.querySelector(`[data-edit-proxy="${p.id}"]`).addEventListener("click", () => openProxyModal(p));
+        row.querySelector(`[data-delete-proxy="${p.id}"]`).addEventListener("click", () => deleteProxy(p.id));
+        proxyList.appendChild(row);
       });
+    } catch (err) {
+      proxyList.innerHTML = "<tr><td colspan='5'>Ошибка загрузки</td></tr>";
+    }
+  }
+
+  async function loadRoutingRules() {
+    try {
+      const [rulesRes, proxiesRes, listenersRes] = await Promise.all([
+        fetch(`/api/projects/routing-rules?project_id=${projectId}`),
+        fetch(`/api/projects/proxies?project_id=${projectId}`),
+        fetch(`/api/projects/listeners?project_id=${projectId}`),
+      ]);
+      const rules = await rulesRes.json();
+      const proxies = await proxiesRes.json();
+      const listeners = await listenersRes.json();
+      const proxyMap = (proxies || []).reduce((m, p) => { m[p.id] = p; return m; }, {});
+      const listenerPorts = (listeners || []).filter((l) => l.active).map((l) => l.port);
+
+      routingList.innerHTML = "";
+      (rules || []).forEach((r, idx) => {
+        const proxyLabel = r.proxy_id ? (proxyMap[r.proxy_id]?.name || `Прокси #${r.proxy_id}`) : "Мимо прокси";
+        const statusLabel = r.active ? "Активно" : "Деактивировано";
+        const listenersLabel = r.listeners === "all" || !r.listeners ? "Все" : r.listeners;
+        const row = document.createElement("tr");
+        row.dataset.ruleId = r.id;
+        row.innerHTML = `
+          <td class="routing-actions">
+            <button class="btn icon-btn" data-move-up="${r.id}" title="Вверх">↑</button>
+            <button class="btn icon-btn" data-move-down="${r.id}" title="Вниз">↓</button>
+          </td>
+          <td><code>${escapeHtml(r.ip_mask_domain || "—")}</code></td>
+          <td>${r.condition_and_or || "AND"}</td>
+          <td>${escapeHtml(listenersLabel)}</td>
+          <td>${escapeHtml(proxyLabel)}</td>
+          <td>${statusLabel}</td>
+          <td>
+            <button class="btn" data-edit-rule="${r.id}">Изменить</button>
+            <button class="btn danger" data-delete-rule="${r.id}">Удалить</button>
+          </td>
+        `;
+        row.querySelector(`[data-move-up="${r.id}"]`).addEventListener("click", () => moveRule(r.id, "up"));
+        row.querySelector(`[data-move-down="${r.id}"]`).addEventListener("click", () => moveRule(r.id, "down"));
+        row.querySelector(`[data-edit-rule="${r.id}"]`).addEventListener("click", () => openRoutingModal(r, proxies, listeners));
+        row.querySelector(`[data-delete-rule="${r.id}"]`).addEventListener("click", () => deleteRule(r.id));
+        routingList.appendChild(row);
+      });
+    } catch (err) {
+      routingList.innerHTML = "<tr><td colspan='7'>Ошибка загрузки</td></tr>";
+    }
+  }
+
+  function escapeHtml(s) {
+    if (s == null) return "";
+    const div = document.createElement("div");
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function openProxyModal(proxy) {
+    editingProxyId = proxy ? proxy.id : null;
+    proxyModalTitle.textContent = proxy ? "Редактировать прокси" : "Добавить прокси";
+    proxyModalName.value = proxy ? proxy.name || "" : "";
+    proxyModalType.value = proxy ? proxy.type || "http" : "http";
+    proxyModalHost.value = proxy ? proxy.host || "" : "";
+    proxyModalPort.value = proxy ? proxy.port || "" : "";
+    proxyModalUser.value = proxy ? proxy.user || "" : "";
+    proxyModalPass.value = proxy ? proxy.pass || "" : "";
+    proxyModal.classList.remove("hidden");
+  }
+
+  async function saveProxy() {
+    const name = proxyModalName.value.trim() || "Прокси";
+    const type = proxyModalType.value;
+    const host = proxyModalHost.value.trim();
+    const port = parseInt(proxyModalPort.value || "0", 10);
+    const user = proxyModalUser.value.trim();
+    const pass = proxyModalPass.value;
+    if (!host || !port) {
+      alert("Укажите хост и порт.");
+      return;
+    }
+    if (type !== "http" && type !== "socks5") {
+      alert("Укажите тип прокси (HTTP или SOCKS5).");
+      return;
+    }
+    try {
+      const payload = { name, type, host, port, user, pass };
+      const url = `/api/projects/proxies?project_id=${projectId}`;
+      const method = editingProxyId ? "PUT" : "POST";
+      const body = editingProxyId ? JSON.stringify({ ...payload, id: editingProxyId }) : JSON.stringify(payload);
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body });
       if (!res.ok) {
         const msg = await res.text();
-        alert(msg || "Ошибка сохранения прокси");
+        alert(msg || "Ошибка сохранения");
+        return;
       }
+      proxyModal.classList.add("hidden");
+      loadProxies();
+      loadRoutingRules();
     } catch (err) {
       alert("Сервер недоступен.");
     }
   }
 
-  enabled.addEventListener("change", () => {
-    if (enabled.checked && !validateProxyFields()) {
-      enabled.checked = false;
-      return;
+  async function deleteProxy(id) {
+    if (!confirm("Удалить прокси? Правила, использующие его, будут деактивированы.")) return;
+    try {
+      const res = await fetch(`/api/projects/proxies?project_id=${projectId}&proxy_id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      loadProxies();
+      loadRoutingRules();
+    } catch (err) {
+      alert(err.message || "Ошибка удаления");
     }
-    saveProxySettings();
-  });
-  if (saveBtn) {
-    saveBtn.addEventListener("click", saveProxySettings);
   }
+
+  function openRoutingModal(rule, proxies, listeners) {
+    editingRuleId = rule ? rule.id : null;
+    routingModalTitle.textContent = rule ? "Редактировать правило" : "Добавить правило";
+    routingRuleIp.value = rule ? rule.ip_mask_domain || "" : "";
+    routingRuleCondition.value = rule ? rule.condition_and_or || "AND" : "AND";
+    routingRuleActive.value = rule ? (rule.active ? "1" : "0") : "1";
+
+    routingRuleProxy.innerHTML = '<option value="">Мимо прокси (напрямую)</option>';
+    (proxies || []).forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name || `${p.host}:${p.port}`;
+      if (rule && rule.proxy_id === p.id) opt.selected = true;
+      routingRuleProxy.appendChild(opt);
+    });
+    if (rule && !rule.proxy_id) routingRuleProxy.value = "";
+
+    routingRuleListeners.innerHTML = "";
+    const activeListeners = (listeners || []).filter((l) => l.active);
+    activeListeners.forEach((l) => {
+      const opt = document.createElement("option");
+      opt.value = l.port;
+      opt.textContent = `${l.address}:${l.port}`;
+      if (rule && rule.listeners && rule.listeners !== "all") {
+        const ports = rule.listeners.split(",").map((x) => x.trim());
+        if (ports.includes(String(l.port))) opt.selected = true;
+      }
+      routingRuleListeners.appendChild(opt);
+    });
+
+    routingModal.classList.remove("hidden");
+  }
+
+  async function saveRoutingRule() {
+    const ipMaskDomain = routingRuleIp.value.trim();
+    const conditionAndOr = routingRuleCondition.value;
+    const proxyVal = routingRuleProxy.value;
+    const proxyId = proxyVal ? parseInt(proxyVal, 10) : null;
+    const active = routingRuleActive.value === "1";
+
+    const selectedPorts = Array.from(routingRuleListeners.selectedOptions).map((o) => o.value);
+    const listeners = selectedPorts.length === 0 ? "all" : selectedPorts.join(",");
+
+    try {
+      const payload = { ip_mask_domain: ipMaskDomain, condition_and_or: conditionAndOr, listeners, proxy_id: proxyId, active };
+      const url = `/api/projects/routing-rules?project_id=${projectId}`;
+      const method = editingRuleId ? "PUT" : "POST";
+      const body = editingRuleId ? JSON.stringify({ ...payload, id: editingRuleId }) : JSON.stringify(payload);
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body });
+      if (!res.ok) {
+        const msg = await res.text();
+        alert(msg || "Ошибка сохранения");
+        return;
+      }
+      routingModal.classList.add("hidden");
+      loadRoutingRules();
+    } catch (err) {
+      alert("Сервер недоступен.");
+    }
+  }
+
+  async function deleteRule(id) {
+    if (!confirm("Удалить правило?")) return;
+    try {
+      const res = await fetch(`/api/projects/routing-rules?project_id=${projectId}&rule_id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      loadRoutingRules();
+    } catch (err) {
+      alert(err.message || "Ошибка удаления");
+    }
+  }
+
+  async function moveRule(id, direction) {
+    try {
+      const res = await fetch(`/api/projects/routing-rules?project_id=${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rule_id: id, move: direction }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      loadRoutingRules();
+    } catch (err) {
+      alert(err.message || "Ошибка перемещения");
+    }
+  }
+
+  proxyAddBtn?.addEventListener("click", () => openProxyModal(null));
+  proxyModalSave?.addEventListener("click", saveProxy);
+  routingAddBtn?.addEventListener("click", async () => {
+    const [proxiesRes, listenersRes] = await Promise.all([
+      fetch(`/api/projects/proxies?project_id=${projectId}`),
+      fetch(`/api/projects/listeners?project_id=${projectId}`),
+    ]);
+    const proxies = await proxiesRes.json();
+    const listeners = await listenersRes.json();
+    openRoutingModal(null, proxies, listeners);
+  });
+  routingRuleSave?.addEventListener("click", saveRoutingRule);
+
+  proxyModal?.querySelectorAll("[data-close]").forEach((el) => {
+    el.addEventListener("click", () => proxyModal.classList.add("hidden"));
+  });
+  routingModal?.querySelectorAll("[data-close]").forEach((el) => {
+    el.addEventListener("click", () => routingModal.classList.add("hidden"));
+  });
+
+  loadProxies();
+  loadRoutingRules();
 
   if (exportBtn) {
     exportBtn.addEventListener("click", () => {
@@ -1502,8 +2033,6 @@ function setupProjectSettings(projectId) {
       }
     });
   }
-
-  loadProxySettings();
 }
 
 function setupModules(projectId) {
@@ -1692,6 +2221,7 @@ function setupProxy(projectId) {
         status: data.status || "",
         mime: data.mime || "",
         listenerPort: data.listenerPort || "",
+        proxyUsed: data.proxyUsed || "",
       };
     } catch (_) {
       return null;
@@ -1711,6 +2241,7 @@ function setupProxy(projectId) {
     status: "",
     mime: "",
     listenerPort: "",
+    proxyUsed: "",
   };
 
   const filterModal = document.getElementById("proxy-filter-modal");
@@ -1722,6 +2253,7 @@ function setupProxy(projectId) {
   const filterStatus = document.getElementById("proxy-filter-status");
   const filterMime = document.getElementById("proxy-filter-mime");
   const filterListener = document.getElementById("proxy-filter-listener");
+  const filterProxy = document.getElementById("proxy-filter-proxy");
   const filterApply = document.getElementById("proxy-filter-apply");
 
   function applyHistoryFilter(list) {
@@ -1749,6 +2281,11 @@ function setupProxy(projectId) {
         const port = parseInt(historyFilter.listenerPort, 10);
         if ((it.listener_port || 0) !== port) return false;
       }
+      if (historyFilter.proxyUsed) {
+        const itemProxy = (it.proxy_used || "-").trim();
+        const filterProxy = historyFilter.proxyUsed.trim();
+        if (itemProxy !== filterProxy) return false;
+      }
       return true;
     });
   }
@@ -1762,7 +2299,9 @@ function setupProxy(projectId) {
     filterStatus.value = historyFilter.status || "";
     filterMime.value = historyFilter.mime || "";
     filterListener.innerHTML = '<option value="">Все</option>';
+    filterProxy.innerHTML = '<option value="">Все</option>';
     const ports = new Set();
+    const proxies = new Set();
     Promise.all([
       fetch(`/api/projects/listeners?project_id=${projectId}`).then((r) => r.json()),
       fetch(`/api/projects/history?project_id=${projectId}`).then((r) => r.json()),
@@ -1771,6 +2310,8 @@ function setupProxy(projectId) {
         (Array.isArray(listeners) ? listeners : []).forEach((l) => ports.add(l.port));
         (Array.isArray(historyItems) ? historyItems : []).forEach((it) => {
           if (it.listener_port) ports.add(it.listener_port);
+          const p = (it.proxy_used || "-").trim();
+          if (p) proxies.add(p);
         });
         [...ports].sort((a, b) => a - b).forEach((port) => {
           const opt = document.createElement("option");
@@ -1778,6 +2319,13 @@ function setupProxy(projectId) {
           opt.textContent = `:${port}`;
           if (String(port) === String(historyFilter.listenerPort)) opt.selected = true;
           filterListener.appendChild(opt);
+        });
+        [...proxies].sort().forEach((name) => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          if (name === historyFilter.proxyUsed) opt.selected = true;
+          filterProxy.appendChild(opt);
         });
       })
       .catch(() => {});
@@ -1806,6 +2354,7 @@ function setupProxy(projectId) {
       filterStatus.value = "";
       filterMime.value = "";
       filterListener.value = "";
+      if (filterProxy) filterProxy.value = "";
     });
   }
   if (filterApply) {
@@ -1818,6 +2367,7 @@ function setupProxy(projectId) {
         status: filterStatus.value || "",
         mime: filterMime.value,
         listenerPort: filterListener.value || "",
+        proxyUsed: filterProxy ? filterProxy.value || "" : "",
       };
       saveProxyFilter(projectId, historyFilter);
       closeFilterModal();
@@ -1910,6 +2460,7 @@ function setupProxy(projectId) {
       case "length": return it.resp_len ?? 0;
       case "date": return it.created_at || "";
       case "listener": return it.listener_port ?? 0;
+      case "proxy": return (it.proxy_used || "").toLowerCase();
       default: return "";
     }
   }
@@ -1939,6 +2490,7 @@ function setupProxy(projectId) {
         const serverIp = it.resp_ip || it.server_addr || "-";
         const createdAt = it.created_at ? new Date(it.created_at).toLocaleString() : "-";
         const listenerPort = it.listener_port ? `:${it.listener_port}` : "-";
+        const proxyUsed = it.proxy_used || "-";
         const requestText = `${it.method || ""} ${it.url || ""}`.trim() || it.url || "-";
         const cells = [
           `${it.id}`,
@@ -1951,6 +2503,7 @@ function setupProxy(projectId) {
           `${it.resp_len}`,
           `${createdAt}`,
           `${listenerPort}`,
+          proxyUsed,
         ];
         cells.forEach((value, idx) => {
           const td = document.createElement("td");
@@ -2203,7 +2756,7 @@ function setupProxy(projectId) {
   });
 
   function updateSortHeaders() {
-    const labels = { id: "#", url: "Запрос", params: "Параметры", status: "Статус", server: "Сервер", mime: "MIME", time: "Время", length: "Длина", date: "Дата", listener: "Слушатель" };
+    const labels = { id: "#", url: "Запрос", params: "Параметры", status: "Статус", server: "Сервер", mime: "MIME", time: "Время", length: "Длина", date: "Дата", listener: "Слушатель", proxy: "Прокси" };
     proxyRoot.querySelectorAll(".history-table th.sortable").forEach((h) => {
       const col = h.dataset.sort;
       h.textContent = (labels[col] || col) + (col === historySortCol ? (historySortDir === "asc" ? " ↑" : " ↓") : "");
@@ -2782,7 +3335,13 @@ function setupRepeater(projectId) {
 
   function loadTabData(tabId, presetReq) {
     fetch(`/api/projects/repeater/tab?project_id=${projectId}&tab_id=${tabId}`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) {
+          loadTabsFromServer(presetReq);
+          return Promise.reject(new Error("tab not found"));
+        }
+        return res.json();
+      })
       .then(async (data) => {
         const tab = repeaterState.tabs.find((t) => t.id === tabId);
         if (!tab) return;
@@ -3251,7 +3810,13 @@ function setupAutomator(projectId) {
 
   function loadTabData(tabId, presetReq) {
     fetch(`/api/projects/automator/tab?project_id=${projectId}&tab_id=${tabId}`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) {
+          loadTabsFromServer(presetReq);
+          return Promise.reject(new Error("tab not found"));
+        }
+        return res.json();
+      })
       .then((data) => {
         const draft = data.draft || {};
         updateCodeDisplay(req, draft.req_raw || presetReq || "", true, true);
@@ -3271,7 +3836,8 @@ function setupAutomator(projectId) {
         loadRuns(tabId);
         startRunsAutoRefresh(tabId);
       })
-      .catch(() => {
+      .catch((err) => {
+        if (err && err.message === "tab not found") return;
         updateCodeDisplay(req, presetReq || "", true, true);
         automatorState.positions = [];
         updatePositionsFromRequest();
