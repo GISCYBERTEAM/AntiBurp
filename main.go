@@ -178,6 +178,8 @@ func main() {
 	mux.HandleFunc("/api/projects/history/detail", app.requireAuth(app.handleHistoryDetailAPI))
 	mux.HandleFunc("/api/projects/targets", app.requireAuth(app.handleTargetsAPI))
 	mux.HandleFunc("/api/projects/proxy-settings", app.requireAuth(app.handleProjectProxySettingsAPI))
+	mux.HandleFunc("/api/projects/proxies", app.requireAuth(app.handleProjectProxiesAPI))
+	mux.HandleFunc("/api/projects/routing-rules", app.requireAuth(app.handleRoutingRulesAPI))
 	mux.HandleFunc("/api/projects/modules", app.requireAuth(app.handleModulesAPI))
 	mux.HandleFunc("/api/projects/modules/toggle", app.requireAuth(app.handleModuleToggleAPI))
 	mux.HandleFunc("/api/projects/modules/header-rules", app.requireAuth(app.handleHeaderRulesAPI))
@@ -399,6 +401,33 @@ func initDB(db *sql.DB) error {
 	_, _ = db.Exec(`ALTER TABLE proxy_history ADD COLUMN resp_ip TEXT`)
 	_, _ = db.Exec(`ALTER TABLE proxy_history ADD COLUMN resp_mime TEXT`)
 	_, _ = db.Exec(`ALTER TABLE proxy_history ADD COLUMN listener_port INTEGER`)
+	_, _ = db.Exec(`ALTER TABLE proxy_history ADD COLUMN proxy_used TEXT`)
+
+	// Multiple proxies and routing rules
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS project_proxies (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_id INTEGER NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		type TEXT NOT NULL DEFAULT 'http',
+		host TEXT NOT NULL DEFAULT '',
+		port INTEGER NOT NULL DEFAULT 0,
+		user TEXT NOT NULL DEFAULT '',
+		pass TEXT NOT NULL DEFAULT '',
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+	)`)
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS project_routing_rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_id INTEGER NOT NULL,
+		ip_mask_domain TEXT NOT NULL DEFAULT '',
+		condition_and_or TEXT NOT NULL DEFAULT 'AND',
+		listeners TEXT NOT NULL DEFAULT 'all',
+		proxy_id INTEGER,
+		active INTEGER NOT NULL DEFAULT 1,
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+	)`)
+
 	return nil
 }
 
@@ -890,6 +919,29 @@ type ProxySettings struct {
 	Pass    string `json:"pass"`
 }
 
+type ProjectProxy struct {
+	ID        int64  `json:"id"`
+	ProjectID int64  `json:"project_id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
+	User      string `json:"user"`
+	Pass      string `json:"pass"`
+	SortOrder int    `json:"sort_order"`
+}
+
+type RoutingRule struct {
+	ID           int64   `json:"id"`
+	ProjectID    int64   `json:"project_id"`
+	IPMaskDomain string  `json:"ip_mask_domain"`
+	ConditionAndOr string `json:"condition_and_or"`
+	Listeners    string  `json:"listeners"`
+	ProxyID      *int64  `json:"proxy_id"`
+	Active       bool    `json:"active"`
+	SortOrder    int     `json:"sort_order"`
+}
+
 type ModuleInfo struct {
 	Key     string `json:"key"`
 	Name    string `json:"name"`
@@ -946,6 +998,348 @@ func (app *App) setProjectProxySettings(projectID int64, settings ProxySettings)
 		WHERE project_id = ?
 	`, enabled, settings.Type, settings.Host, settings.Port, settings.User, settings.Pass, projectID)
 	return err
+}
+
+func (app *App) listProjectProxies(projectID int64) ([]ProjectProxy, error) {
+	rows, err := app.db.Query(`SELECT id, project_id, name, type, host, port, user, pass, sort_order FROM project_proxies WHERE project_id = ? ORDER BY sort_order, id`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProjectProxy
+	for rows.Next() {
+		var p ProjectProxy
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Type, &p.Host, &p.Port, &p.User, &p.Pass, &p.SortOrder); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (app *App) createProjectProxy(projectID int64, p ProjectProxy) (int64, error) {
+	var maxOrder int
+	_ = app.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) FROM project_proxies WHERE project_id = ?`, projectID).Scan(&maxOrder)
+	res, err := app.db.Exec(`INSERT INTO project_proxies (project_id, name, type, host, port, user, pass, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		projectID, p.Name, p.Type, p.Host, p.Port, p.User, p.Pass, maxOrder+1)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (app *App) updateProjectProxy(projectID int64, p ProjectProxy) error {
+	res, err := app.db.Exec(`UPDATE project_proxies SET name=?, type=?, host=?, port=?, user=?, pass=? WHERE id=? AND project_id=?`,
+		p.Name, p.Type, p.Host, p.Port, p.User, p.Pass, p.ID, projectID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("proxy not found")
+	}
+	return nil
+}
+
+func (app *App) deleteProjectProxy(projectID int64, proxyID int64) error {
+	_, err := app.db.Exec(`UPDATE project_routing_rules SET active=0 WHERE project_id=? AND proxy_id=?`, projectID, proxyID)
+	if err != nil {
+		return err
+	}
+	res, err := app.db.Exec(`DELETE FROM project_proxies WHERE id=? AND project_id=?`, proxyID, projectID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("proxy not found")
+	}
+	return nil
+}
+
+func (app *App) getProjectProxyByID(projectID int64, proxyID int64) (*ProjectProxy, error) {
+	var p ProjectProxy
+	err := app.db.QueryRow(`SELECT id, project_id, name, type, host, port, user, pass, sort_order FROM project_proxies WHERE id=? AND project_id=?`, proxyID, projectID).
+		Scan(&p.ID, &p.ProjectID, &p.Name, &p.Type, &p.Host, &p.Port, &p.User, &p.Pass, &p.SortOrder)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (app *App) listRoutingRules(projectID int64) ([]RoutingRule, error) {
+	rows, err := app.db.Query(`SELECT id, project_id, ip_mask_domain, condition_and_or, listeners, proxy_id, active, sort_order FROM project_routing_rules WHERE project_id = ? ORDER BY sort_order, id`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RoutingRule
+	for rows.Next() {
+		var r RoutingRule
+		var proxyID sql.NullInt64
+		var active int
+		if err := rows.Scan(&r.ID, &r.ProjectID, &r.IPMaskDomain, &r.ConditionAndOr, &r.Listeners, &proxyID, &active, &r.SortOrder); err != nil {
+			return nil, err
+		}
+		r.Active = active == 1
+		if proxyID.Valid {
+			r.ProxyID = &proxyID.Int64
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func (app *App) createRoutingRule(projectID int64, r RoutingRule) (int64, error) {
+	var maxOrder int
+	_ = app.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) FROM project_routing_rules WHERE project_id = ?`, projectID).Scan(&maxOrder)
+	proxyID := interface{}(nil)
+	if r.ProxyID != nil {
+		proxyID = *r.ProxyID
+	}
+	active := 0
+	if r.Active {
+		active = 1
+	}
+	res, err := app.db.Exec(`INSERT INTO project_routing_rules (project_id, ip_mask_domain, condition_and_or, listeners, proxy_id, active, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		projectID, r.IPMaskDomain, r.ConditionAndOr, r.Listeners, proxyID, active, maxOrder+1)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (app *App) updateRoutingRule(projectID int64, r RoutingRule) error {
+	proxyID := interface{}(nil)
+	if r.ProxyID != nil {
+		proxyID = *r.ProxyID
+	}
+	active := 0
+	if r.Active {
+		active = 1
+	}
+	res, err := app.db.Exec(`UPDATE project_routing_rules SET ip_mask_domain=?, condition_and_or=?, listeners=?, proxy_id=?, active=? WHERE id=? AND project_id=?`,
+		r.IPMaskDomain, r.ConditionAndOr, r.Listeners, proxyID, active, r.ID, projectID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("rule not found")
+	}
+	return nil
+}
+
+func (app *App) deleteRoutingRule(projectID int64, ruleID int64) error {
+	res, err := app.db.Exec(`DELETE FROM project_routing_rules WHERE id=? AND project_id=?`, ruleID, projectID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("rule not found")
+	}
+	return nil
+}
+
+func (app *App) moveRoutingRule(projectID int64, ruleID int64, move string) error {
+	var sortOrder int
+	err := app.db.QueryRow(`SELECT sort_order FROM project_routing_rules WHERE id=? AND project_id=?`, ruleID, projectID).Scan(&sortOrder)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("rule not found")
+	}
+	if err != nil {
+		return err
+	}
+	if move == "up" && sortOrder > 1 {
+		_, _ = app.db.Exec(`UPDATE project_routing_rules SET sort_order=sort_order+1 WHERE project_id=? AND sort_order=?`, projectID, sortOrder-1)
+		_, err = app.db.Exec(`UPDATE project_routing_rules SET sort_order=sort_order-1 WHERE id=? AND project_id=?`, ruleID, projectID)
+		return err
+	}
+	if move == "down" {
+		_, _ = app.db.Exec(`UPDATE project_routing_rules SET sort_order=sort_order-1 WHERE project_id=? AND sort_order=?`, projectID, sortOrder+1)
+		_, err = app.db.Exec(`UPDATE project_routing_rules SET sort_order=sort_order+1 WHERE id=? AND project_id=?`, ruleID, projectID)
+		return err
+	}
+	return nil
+}
+
+// resolveProxyForRequest returns the proxy to use for a request, or nil for direct (bypass or no match).
+func (app *App) resolveProxyForRequest(projectID int64, clientIP, targetHost string, listenerPort int) *ProjectProxy {
+	rules, err := app.listRoutingRules(projectID)
+	if err != nil {
+		return nil
+	}
+	for _, r := range rules {
+		if !r.Active {
+			continue
+		}
+		ipDomainMatch := app.matchIPMaskDomain(r.IPMaskDomain, clientIP, targetHost)
+		listenerMatch := app.matchListeners(r.Listeners, listenerPort)
+		matches := false
+		switch strings.ToUpper(r.ConditionAndOr) {
+		case "OR":
+			matches = ipDomainMatch || listenerMatch
+		default:
+			matches = ipDomainMatch && listenerMatch
+		}
+		if !matches {
+			continue
+		}
+		if r.ProxyID == nil {
+			return nil
+		}
+		p, err := app.getProjectProxyByID(projectID, *r.ProxyID)
+		if err != nil || p == nil {
+			continue
+		}
+		return p
+	}
+	// No rule matched: fall back to legacy project_settings if enabled
+	settings, err := app.getProjectProxySettings(projectID)
+	if err == nil && settings.Enabled && settings.Host != "" && settings.Port > 0 {
+		return &ProjectProxy{Type: settings.Type, Host: settings.Host, Port: settings.Port, User: settings.User, Pass: settings.Pass}
+	}
+	return nil
+}
+
+func (app *App) matchIPMaskDomain(spec, clientIP, targetHost string) bool {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return true
+	}
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		negate := strings.HasPrefix(part, "!")
+		if negate {
+			part = strings.TrimSpace(part[1:])
+		}
+		matches := false
+		if strings.Contains(part, "-") {
+			matches = matchIPRange(part, clientIP)
+		} else if strings.Contains(part, "/") {
+			matches = matchCIDR(part, clientIP)
+		} else if net.ParseIP(part) != nil {
+			matches = clientIP == part
+		} else {
+			matches = matchDomain(part, targetHost)
+		}
+		if negate {
+			matches = !matches
+		}
+		if matches {
+			return true
+		}
+	}
+	return false
+}
+
+func matchIPRange(spec, ipStr string) bool {
+	parts := strings.SplitN(spec, "-", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	startStr := strings.TrimSpace(parts[0])
+	endStr := strings.TrimSpace(parts[1])
+	start := net.ParseIP(startStr)
+	var end net.IP
+	if !strings.Contains(endStr, ".") {
+		if lastOctet, err := strconv.Atoi(endStr); err == nil && lastOctet >= 0 && lastOctet <= 255 {
+			prefix := startStr
+			if idx := strings.LastIndex(prefix, "."); idx > 0 {
+				prefix = prefix[:idx]
+				end = net.ParseIP(prefix + "." + strconv.Itoa(lastOctet))
+			}
+		}
+	}
+	if end == nil {
+		end = net.ParseIP(endStr)
+	}
+	ip := net.ParseIP(ipStr)
+	if start == nil || end == nil || ip == nil {
+		return false
+	}
+	start4 := start.To4()
+	end4 := end.To4()
+	ip4 := ip.To4()
+	if start4 != nil && end4 != nil && ip4 != nil {
+		s := uint32(start4[0])<<24 | uint32(start4[1])<<16 | uint32(start4[2])<<8 | uint32(start4[3])
+		e := uint32(end4[0])<<24 | uint32(end4[1])<<16 | uint32(end4[2])<<8 | uint32(end4[3])
+		i := uint32(ip4[0])<<24 | uint32(ip4[1])<<16 | uint32(ip4[2])<<8 | uint32(ip4[3])
+		return i >= s && i <= e
+	}
+	return false
+}
+
+func matchCIDR(spec, ipStr string) bool {
+	_, network, err := net.ParseCIDR(spec)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	return network.Contains(ip)
+}
+
+func matchDomain(spec, host string) bool {
+	if host == "" {
+		return false
+	}
+	if hostPort, _, err := net.SplitHostPort(host); err == nil {
+		host = hostPort
+	}
+	spec = strings.TrimPrefix(spec, ".")
+	host = strings.ToLower(host)
+	spec = strings.ToLower(spec)
+	if spec == host {
+		return true
+	}
+	return strings.HasSuffix(host, "."+spec) || host == spec
+}
+
+func (app *App) matchListeners(spec string, listenerPort int) bool {
+	if spec == "" || spec == "all" {
+		return true
+	}
+	for _, p := range strings.Split(spec, ",") {
+		port, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil {
+			continue
+		}
+		if port == listenerPort {
+			return true
+		}
+	}
+	return false
+}
+
+func (app *App) deactivateRulesForListener(projectID int64, listenerPort int) {
+	rows, err := app.db.Query(`SELECT id, listeners FROM project_routing_rules WHERE project_id=? AND active=1`, projectID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	portStr := fmt.Sprintf("%d", listenerPort)
+	for rows.Next() {
+		var id int64
+		var listeners string
+		if err := rows.Scan(&id, &listeners); err != nil {
+			continue
+		}
+		if listeners == "all" {
+			continue
+		}
+		for _, p := range strings.Split(listeners, ",") {
+			if strings.TrimSpace(p) == portStr {
+				_, _ = app.db.Exec(`UPDATE project_routing_rules SET active=0 WHERE id=?`, id)
+				break
+			}
+		}
+	}
 }
 
 func (app *App) getModuleEnabled(projectID int64, key string) (bool, error) {
@@ -1210,7 +1604,7 @@ func (app *App) handleHistoryAPI(w http.ResponseWriter, r *http.Request, user *U
 		return
 	}
 	rows, err := app.db.Query(`
-		SELECT id, created_at, method, url, status, server_addr, duration_ms, resp_len, req_raw, resp_ip, resp_mime, listener_port
+		SELECT id, created_at, method, url, status, server_addr, duration_ms, resp_len, req_raw, resp_ip, resp_mime, listener_port, COALESCE(proxy_used, '')
 		FROM proxy_history
 		WHERE project_id = ?
 		ORDER BY id DESC
@@ -1232,6 +1626,7 @@ func (app *App) handleHistoryAPI(w http.ResponseWriter, r *http.Request, user *U
 		RespIP       string `json:"resp_ip"`
 		RespMime     string `json:"resp_mime"`
 		ListenerPort int    `json:"listener_port"`
+		ProxyUsed    string `json:"proxy_used"`
 		HasGet       bool   `json:"has_get"`
 		HasPost      bool   `json:"has_post"`
 	}
@@ -1240,7 +1635,7 @@ func (app *App) handleHistoryAPI(w http.ResponseWriter, r *http.Request, user *U
 		var it item
 		var created time.Time
 		var reqRaw string
-		if err := rows.Scan(&it.ID, &created, &it.Method, &it.URL, &it.Status, &it.ServerAddr, &it.DurationMs, &it.RespLen, &reqRaw, &it.RespIP, &it.RespMime, &it.ListenerPort); err == nil {
+		if err := rows.Scan(&it.ID, &created, &it.Method, &it.URL, &it.Status, &it.ServerAddr, &it.DurationMs, &it.RespLen, &reqRaw, &it.RespIP, &it.RespMime, &it.ListenerPort, &it.ProxyUsed); err == nil {
 			it.CreatedAt = created.Format(time.RFC3339)
 			it.HasGet, it.HasPost = detectRequestParams(reqRaw)
 			items = append(items, it)
@@ -2006,6 +2401,146 @@ func (app *App) handleProjectProxySettingsAPI(w http.ResponseWriter, r *http.Req
 		}
 		if err := app.setProjectProxySettings(projectID, payload); err != nil {
 			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (app *App) handleProjectProxiesAPI(w http.ResponseWriter, r *http.Request, user *User) {
+	projectID, _ := strconv.ParseInt(r.URL.Query().Get("project_id"), 10, 64)
+	if !app.canAccessProject(user, projectID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		proxies, err := app.listProjectProxies(projectID)
+		if err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, proxies)
+	case http.MethodPost:
+		var p ProjectProxy
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		p.Type = strings.ToLower(strings.TrimSpace(p.Type))
+		if p.Type != "http" && p.Type != "socks5" {
+			http.Error(w, "invalid proxy type", http.StatusBadRequest)
+			return
+		}
+		p.Host = strings.TrimSpace(p.Host)
+		if p.Host == "" || p.Port <= 0 {
+			http.Error(w, "host and port required", http.StatusBadRequest)
+			return
+		}
+		id, err := app.createProjectProxy(projectID, p)
+		if err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"id": id})
+	case http.MethodPut:
+		var p ProjectProxy
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		p.Type = strings.ToLower(strings.TrimSpace(p.Type))
+		if p.Type != "http" && p.Type != "socks5" {
+			http.Error(w, "invalid proxy type", http.StatusBadRequest)
+			return
+		}
+		p.Host = strings.TrimSpace(p.Host)
+		if p.Host == "" || p.Port <= 0 {
+			http.Error(w, "host and port required", http.StatusBadRequest)
+			return
+		}
+		if err := app.updateProjectProxy(projectID, p); err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	case http.MethodDelete:
+		proxyID, _ := strconv.ParseInt(r.URL.Query().Get("proxy_id"), 10, 64)
+		if proxyID <= 0 {
+			http.Error(w, "proxy_id required", http.StatusBadRequest)
+			return
+		}
+		if err := app.deleteProjectProxy(projectID, proxyID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (app *App) handleRoutingRulesAPI(w http.ResponseWriter, r *http.Request, user *User) {
+	projectID, _ := strconv.ParseInt(r.URL.Query().Get("project_id"), 10, 64)
+	if !app.canAccessProject(user, projectID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		rules, err := app.listRoutingRules(projectID)
+		if err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, rules)
+	case http.MethodPost:
+		var rule RoutingRule
+		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		id, err := app.createRoutingRule(projectID, rule)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"id": id})
+	case http.MethodPut:
+		var rule RoutingRule
+		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		if err := app.updateRoutingRule(projectID, rule); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	case http.MethodDelete:
+		ruleID, _ := strconv.ParseInt(r.URL.Query().Get("rule_id"), 10, 64)
+		if ruleID <= 0 {
+			http.Error(w, "rule_id required", http.StatusBadRequest)
+			return
+		}
+		if err := app.deleteRoutingRule(projectID, ruleID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	case "PATCH":
+		var payload struct {
+			RuleID int64 `json:"rule_id"`
+			Move   string `json:"move"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		if err := app.moveRoutingRule(projectID, payload.RuleID, payload.Move); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true})
@@ -3424,6 +3959,8 @@ func (pm *ProxyManager) Stop(listenerID int64) error {
 		pm.mu.Unlock()
 		return fmt.Errorf("listener not found")
 	}
+	projectID := listener.ProjectID
+	port := listener.Port
 	delete(pm.listeners, listenerID)
 	pm.mu.Unlock()
 	listener.Active = false
@@ -3433,6 +3970,7 @@ func (pm *ProxyManager) Stop(listenerID int64) error {
 	if listener.server != nil {
 		_ = listener.server.Close()
 	}
+	pm.app.deactivateRulesForListener(projectID, port)
 	return nil
 }
 
@@ -3454,6 +3992,7 @@ func (pm *ProxyManager) StopProject(projectID int64) {
 		if listener.server != nil {
 			_ = listener.server.Close()
 		}
+		pm.app.deactivateRulesForListener(projectID, listener.Port)
 	}
 }
 
@@ -3484,7 +4023,13 @@ func (pm *ProxyManager) handleConnect(listener *ProxyListener, w http.ResponseWr
 		pm.handleConnectMITM(listener, w, r, projectID)
 		return
 	}
-	destConn, err := pm.app.dialThroughProxy(projectID, "tcp", r.Host, 30*time.Second)
+	clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+	targetHost := r.Host
+	if h, _, err := net.SplitHostPort(targetHost); err == nil {
+		targetHost = h
+	}
+	useProxy := pm.app.resolveProxyForRequest(projectID, clientIP, targetHost, listener.Port)
+	destConn, err := pm.app.dialThroughProxy(projectID, "tcp", r.Host, 30*time.Second, useProxy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -3509,10 +4054,18 @@ func (pm *ProxyManager) handleConnect(listener *ProxyListener, w http.ResponseWr
 	if destConn != nil {
 		respIP = destConn.RemoteAddr().String()
 	}
+	proxyUsed := "-"
+	if useProxy != nil {
+		if useProxy.Name != "" {
+			proxyUsed = useProxy.Name
+		} else {
+			proxyUsed = fmt.Sprintf("%s:%d", useProxy.Host, useProxy.Port)
+		}
+	}
 	_, _ = pm.app.db.Exec(`
-		INSERT INTO proxy_history (project_id, created_at, method, url, status, server_addr, duration_ms, resp_len, req_raw, resp_raw, resp_ip, resp_mime, listener_port)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		projectID, time.Now(), "CONNECT", r.Host, 200, r.Host, 0, len(respRaw), reqRaw, respRaw, respIP, "", listener.Port)
+		INSERT INTO proxy_history (project_id, created_at, method, url, status, server_addr, duration_ms, resp_len, req_raw, resp_raw, resp_ip, resp_mime, listener_port, proxy_used)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		projectID, time.Now(), "CONNECT", r.Host, 200, r.Host, 0, len(respRaw), reqRaw, respRaw, respIP, "", listener.Port, proxyUsed)
 }
 
 func (pm *ProxyManager) handleHTTP(listener *ProxyListener, w http.ResponseWriter, r *http.Request, projectID int64) {
@@ -3537,7 +4090,16 @@ func (pm *ProxyManager) handleHTTP(listener *ProxyListener, w http.ResponseWrite
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	respRaw, _, respLen, respMime, respIP, err := pm.app.sendRequestInfo(parsedReq, projectID)
+	clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+	targetHost := parsedReq.Host
+	if parsedReq.URL != nil && parsedReq.URL.Host != "" {
+		targetHost = parsedReq.URL.Host
+	}
+	if h, _, err := net.SplitHostPort(targetHost); err == nil {
+		targetHost = h
+	}
+	useProxy := pm.app.resolveProxyForRequest(projectID, clientIP, targetHost, listener.Port)
+	respRaw, _, respLen, respMime, respIP, err := pm.app.sendRequestInfo(parsedReq, projectID, clientIP, targetHost, listener.Port)
 	if err != nil {
 		writeProxyErrorPage(w, err)
 		return
@@ -3565,10 +4127,18 @@ func (pm *ProxyManager) handleHTTP(listener *ProxyListener, w http.ResponseWrite
 	if respIP == "" {
 		respIP = serverAddr
 	}
+	proxyUsed := "-"
+	if useProxy != nil {
+		if useProxy.Name != "" {
+			proxyUsed = useProxy.Name
+		} else {
+			proxyUsed = fmt.Sprintf("%s:%d", useProxy.Host, useProxy.Port)
+		}
+	}
 	_, _ = pm.app.db.Exec(`
-		INSERT INTO proxy_history (project_id, created_at, method, url, status, server_addr, duration_ms, resp_len, req_raw, resp_raw, resp_ip, resp_mime, listener_port)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		projectID, time.Now(), parsedReq.Method, parsedReq.URL.String(), resp.StatusCode, serverAddr, durationMs, respLen, reqRaw, respRaw, respIP, respMime, listener.Port)
+		INSERT INTO proxy_history (project_id, created_at, method, url, status, server_addr, duration_ms, resp_len, req_raw, resp_raw, resp_ip, resp_mime, listener_port, proxy_used)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		projectID, time.Now(), parsedReq.Method, parsedReq.URL.String(), resp.StatusCode, serverAddr, durationMs, respLen, reqRaw, respRaw, respIP, respMime, listener.Port, proxyUsed)
 }
 
 func (pm *ProxyManager) handleConnectMITM(listener *ProxyListener, w http.ResponseWriter, r *http.Request, projectID int64) {
@@ -3643,8 +4213,17 @@ func (pm *ProxyManager) handleTLSRequests(listener *ProxyListener, conn net.Conn
 		}
 		parsedReq.URL.Scheme = "https"
 
+		clientIP, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+		targetHost := parsedReq.Host
+		if parsedReq.URL != nil && parsedReq.URL.Host != "" {
+			targetHost = parsedReq.URL.Host
+		}
+		if h, _, err := net.SplitHostPort(targetHost); err == nil {
+			targetHost = h
+		}
+		useProxy := pm.app.resolveProxyForRequest(projectID, clientIP, targetHost, listener.Port)
 		start := time.Now()
-		respRaw, _, respLen, respMime, respIP, err := pm.app.sendRequestInfo(parsedReq, projectID)
+		respRaw, _, respLen, respMime, respIP, err := pm.app.sendRequestInfo(parsedReq, projectID, clientIP, targetHost, listener.Port)
 		if err != nil {
 			writeRawHTMLResponse(conn, 502, proxyErrorHTML())
 			continue
@@ -3659,11 +4238,19 @@ func (pm *ProxyManager) handleTLSRequests(listener *ProxyListener, conn net.Conn
 		if respIP == "" {
 			respIP = serverAddr
 		}
+		proxyUsed := "-"
+		if useProxy != nil {
+			if useProxy.Name != "" {
+				proxyUsed = useProxy.Name
+			} else {
+				proxyUsed = fmt.Sprintf("%s:%d", useProxy.Host, useProxy.Port)
+			}
+		}
 		statusCode := extractStatus(respRaw)
 		_, _ = pm.app.db.Exec(`
-			INSERT INTO proxy_history (project_id, created_at, method, url, status, server_addr, duration_ms, resp_len, req_raw, resp_raw, resp_ip, resp_mime, listener_port)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			projectID, time.Now(), parsedReq.Method, parsedReq.URL.String(), statusCode, serverAddr, durationMs, respLen, reqRaw, respRaw, respIP, respMime, listener.Port)
+			INSERT INTO proxy_history (project_id, created_at, method, url, status, server_addr, duration_ms, resp_len, req_raw, resp_raw, resp_ip, resp_mime, listener_port, proxy_used)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			projectID, time.Now(), parsedReq.Method, parsedReq.URL.String(), statusCode, serverAddr, durationMs, respLen, reqRaw, respRaw, respIP, respMime, listener.Port, proxyUsed)
 	}
 }
 
@@ -4277,11 +4864,11 @@ func (app *App) refillProxyPool(proxyAddr string, timeout time.Duration) {
 	app.proxyConnPool.put(proxyAddr, conn)
 }
 
-func (app *App) dialThroughProxy(projectID int64, network, addr string, timeout time.Duration) (net.Conn, error) {
-	settings, err := app.getProjectProxySettings(projectID)
-	if err != nil || !settings.Enabled {
+func (app *App) dialThroughProxy(projectID int64, network, addr string, timeout time.Duration, useProxy *ProjectProxy) (net.Conn, error) {
+	if useProxy == nil {
 		return net.DialTimeout(network, addr, timeout)
 	}
+	settings := ProxySettings{Enabled: true, Type: useProxy.Type, Host: useProxy.Host, Port: useProxy.Port, User: useProxy.User, Pass: useProxy.Pass}
 	if !strings.Contains(addr, ":") {
 		addr = addr + ":443"
 	}
@@ -4398,17 +4985,16 @@ func (c *bufferedConn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
-func (app *App) buildTransport(projectID int64) (*http.Transport, error) {
+func (app *App) buildTransport(projectID int64, useProxy *ProjectProxy) (*http.Transport, error) {
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
 	}
-	settings, err := app.getProjectProxySettings(projectID)
-	if err != nil || !settings.Enabled {
-		return transport, err
+	if useProxy == nil {
+		return transport, nil
 	}
+	settings := ProxySettings{Enabled: true, Type: useProxy.Type, Host: useProxy.Host, Port: useProxy.Port, User: useProxy.User, Pass: useProxy.Pass}
 	addr := fmt.Sprintf("%s:%d", settings.Host, settings.Port)
 	if settings.Type == "socks5" {
 		var auth *proxy.Auth
@@ -4440,24 +5026,45 @@ func (app *App) buildTransport(projectID int64) (*http.Transport, error) {
 }
 
 func (app *App) sendRequest(req *http.Request, projectID int64) (string, time.Duration, int, error) {
-	raw, duration, length, _, _, err := app.sendRequestInfo(req, projectID)
+	targetHost := ""
+	if req.URL != nil {
+		targetHost = req.URL.Host
+	}
+	if targetHost == "" {
+		targetHost = req.Host
+	}
+	if h, _, err := net.SplitHostPort(targetHost); err == nil {
+		targetHost = h
+	}
+	raw, duration, length, _, _, err := app.sendRequestInfo(req, projectID, "", targetHost, 0)
 	return raw, duration, length, err
 }
 
 func (app *App) sendRequestWithContext(ctx context.Context, req *http.Request, projectID int64) (string, time.Duration, int, error) {
-	raw, duration, length, _, _, err := app.sendRequestWithContextInfo(ctx, req, projectID)
+	targetHost := ""
+	if req.URL != nil {
+		targetHost = req.URL.Host
+	}
+	if targetHost == "" {
+		targetHost = req.Host
+	}
+	if h, _, err := net.SplitHostPort(targetHost); err == nil {
+		targetHost = h
+	}
+	raw, duration, length, _, _, err := app.sendRequestWithContextInfo(ctx, req, projectID, "", targetHost, 0)
 	return raw, duration, length, err
 }
 
-func (app *App) sendRequestInfo(req *http.Request, projectID int64) (string, time.Duration, int, string, string, error) {
-	return app.sendRequestWithContextInfo(context.Background(), req, projectID)
+func (app *App) sendRequestInfo(req *http.Request, projectID int64, clientIP, targetHost string, listenerPort int) (string, time.Duration, int, string, string, error) {
+	return app.sendRequestWithContextInfo(context.Background(), req, projectID, clientIP, targetHost, listenerPort)
 }
 
-func (app *App) sendRequestWithContextInfo(ctx context.Context, req *http.Request, projectID int64) (string, time.Duration, int, string, string, error) {
+func (app *App) sendRequestWithContextInfo(ctx context.Context, req *http.Request, projectID int64, clientIP, targetHost string, listenerPort int) (string, time.Duration, int, string, string, error) {
 	if err := app.applyHeaderRules(req, projectID); err != nil {
 		return "", 0, 0, "", "", err
 	}
-	transport, err := app.buildTransport(projectID)
+	useProxy := app.resolveProxyForRequest(projectID, clientIP, targetHost, listenerPort)
+	transport, err := app.buildTransport(projectID, useProxy)
 	if err != nil {
 		return "", 0, 0, "", "", err
 	}
@@ -4499,7 +5106,18 @@ func (app *App) sendRequestWithContextBody(ctx context.Context, req *http.Reques
 	if err := app.applyHeaderRules(req, projectID); err != nil {
 		return "", 0, 0, err
 	}
-	transport, err := app.buildTransport(projectID)
+	targetHost := ""
+	if req.URL != nil {
+		targetHost = req.URL.Host
+	}
+	if targetHost == "" {
+		targetHost = req.Host
+	}
+	if h, _, err := net.SplitHostPort(targetHost); err == nil {
+		targetHost = h
+	}
+	useProxy := app.resolveProxyForRequest(projectID, "", targetHost, 0)
+	transport, err := app.buildTransport(projectID, useProxy)
 	if err != nil {
 		return "", 0, 0, err
 	}
