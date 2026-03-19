@@ -150,15 +150,16 @@
         <table class="history-table">
           <colgroup>
             <col style="width: 4%" />
-            <col style="width: 30%" />
-            <col style="width: 8%" />
-            <col style="width: 6%" />
-            <col style="width: 10%" />
-            <col style="width: 10%" />
-            <col style="width: 6%" />
-            <col style="width: 6%" />
-            <col style="width: 12%" />
-            <col style="width: 8%" />
+            <col style="width: 26%" />
+            <col style="width: 7%" />
+            <col style="width: 5%" />
+            <col style="width: 9%" />
+            <col style="width: 9%" />
+            <col style="width: 5%" />
+            <col style="width: 5%" />
+            <col style="width: 11%" />
+            <col style="width: 7%" />
+            <col style="width: 11%" />
           </colgroup>
           <thead>
             <tr>
@@ -172,6 +173,7 @@
               <th class="sortable" data-sort="length">Длина</th>
               <th class="sortable" data-sort="date">Дата</th>
               <th class="sortable" data-sort="listener">Слушатель</th>
+              <th class="sortable" data-sort="proxy">Прокси</th>
             </tr>
           </thead>
           <tbody id="history-list"></tbody>
@@ -296,6 +298,12 @@
             <div class="filter-row">
               <label>Слушатель</label>
               <select id="proxy-filter-listener">
+                <option value="">Все</option>
+              </select>
+            </div>
+            <div class="filter-row">
+              <label>Прокси</label>
+              <select id="proxy-filter-proxy">
                 <option value="">Все</option>
               </select>
             </div>
@@ -601,41 +609,147 @@
       </div>
 
       <h3>Прокси</h3>
-      <div class="toggle-row">
-        <span class="muted">Режим прокси</span>
-        <label class="switch">
-          <input type="checkbox" id="project-proxy-enabled" />
-          <span class="slider"></span>
-        </label>
+      <p class="muted hint">Добавьте прокси-серверы для маршрутизации трафика. IP/маска: 192.168.1.1, 10.0.0.0/8, 192.168.1.1-100. Домен: example.com. Отрицание: !192.168.1.1</p>
+      <div class="list settings-table-wrap">
+        <table class="targets-table proxy-table">
+          <colgroup>
+            <col style="width:20%" />
+            <col style="width:8%" />
+            <col style="width:18%" />
+            <col style="width:18%" />
+            <col style="width:36%" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Название</th>
+              <th>Тип</th>
+              <th>Хост:Порт</th>
+              <th>Аутентификация</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="proxy-list"></tbody>
+        </table>
       </div>
-      <div class="grid-4 settings-grid">
-        <div>
-          <label>Тип прокси</label>
-          <select id="project-proxy-type">
-            <option value="http">HTTP Proxy</option>
-            <option value="socks5">SOCKS5</option>
-          </select>
-        </div>
-        <div>
-          <label>Хост</label>
-          <input type="text" id="project-proxy-host" placeholder="127.0.0.1" />
-        </div>
-        <div>
-          <label>Порт</label>
-          <input type="number" id="project-proxy-port" placeholder="8080" />
+      <div class="actions settings-actions">
+        <button class="btn" id="proxy-add">Добавить прокси</button>
+      </div>
+
+      <h3>Таблица маршрутизации</h3>
+      <p class="muted hint">Правила обрабатываются сверху вниз. Первое совпадение применяется.</p>
+      <div class="list settings-table-wrap">
+        <table class="targets-table routing-table">
+          <colgroup>
+            <col style="width:6%" />
+            <col style="width:28%" />
+            <col style="width:8%" />
+            <col style="width:12%" />
+            <col style="width:14%" />
+            <col style="width:12%" />
+            <col style="width:20%" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th></th>
+              <th>IP/Маска/Домен</th>
+              <th>И/ИЛИ</th>
+              <th>Слушатели</th>
+              <th>Прокси</th>
+              <th>Статус</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="routing-rules-list"></tbody>
+        </table>
+      </div>
+      <div class="actions settings-actions">
+        <button class="btn" id="routing-rule-add">Добавить правило</button>
+      </div>
+
+      <div id="proxy-modal" class="modal hidden">
+        <div class="modal-backdrop" data-close></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 id="proxy-modal-title">Добавить прокси</h3>
+            <button class="btn" data-close>Закрыть</button>
+          </div>
+          <div class="grid-4 modal-form">
+            <div>
+              <label>Название</label>
+              <input type="text" id="proxy-modal-name" placeholder="Мой прокси" />
+            </div>
+            <div>
+              <label>Тип</label>
+              <select id="proxy-modal-type">
+                <option value="http">HTTP</option>
+                <option value="socks5">SOCKS5</option>
+              </select>
+            </div>
+            <div>
+              <label>Хост</label>
+              <input type="text" id="proxy-modal-host" placeholder="127.0.0.1" />
+            </div>
+            <div>
+              <label>Порт</label>
+              <input type="number" id="proxy-modal-port" placeholder="8080" />
+            </div>
+            <div>
+              <label>Пользователь</label>
+              <input type="text" id="proxy-modal-user" />
+            </div>
+            <div>
+              <label>Пароль</label>
+              <input type="password" id="proxy-modal-pass" />
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn primary" id="proxy-modal-save">Сохранить</button>
+          </div>
         </div>
       </div>
-      <div class="grid-3 settings-grid">
-        <div>
-          <label>Пользователь (опционально)</label>
-          <input type="text" id="project-proxy-user" />
-        </div>
-        <div>
-          <label>Пароль (опционально)</label>
-          <input type="password" id="project-proxy-pass" />
-        </div>
-        <div class="actions">
-          <button class="btn primary" id="project-proxy-save">Сохранить</button>
+
+      <div id="routing-rule-modal" class="modal hidden">
+        <div class="modal-backdrop" data-close></div>
+        <div class="modal-content routing-modal-content">
+          <div class="modal-header">
+            <h3 id="routing-rule-modal-title">Добавить правило</h3>
+            <button class="btn" data-close>Закрыть</button>
+          </div>
+          <div class="modal-form">
+            <div class="form-row">
+              <label>IP/Маска/Домен</label>
+              <input type="text" id="routing-rule-ip" placeholder="192.168.1.1, example.com, !10.0.0.0/8" class="full-width" />
+              <span class="hint">Через запятую. IP, CIDR, диапазон (1.2.3.4-100), домен. ! для отрицания.</span>
+            </div>
+            <div class="form-row">
+              <label>И/ИЛИ (условие между полями)</label>
+              <select id="routing-rule-condition">
+                <option value="AND">И (оба условия)</option>
+                <option value="OR">ИЛИ (любое условие)</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Слушатели</label>
+              <select id="routing-rule-listeners" multiple></select>
+              <span class="hint">Выберите порты или оставьте пустым для «все»</span>
+            </div>
+            <div class="form-row">
+              <label>Прокси</label>
+              <select id="routing-rule-proxy">
+                <option value="">Мимо прокси (напрямую)</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Статус</label>
+              <select id="routing-rule-active">
+                <option value="1">Активно</option>
+                <option value="0">Деактивировано</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn primary" id="routing-rule-modal-save">Сохранить</button>
+          </div>
         </div>
       </div>
 
@@ -717,7 +831,7 @@
         <span>© 2026–<span id="footer-year"></span></span>
         <span>Все права защищены</span>
         <a class="footer-link" href="https://gorillahacker.pro" target="_blank" rel="noopener">GorillaHacker</a>
-        <span class="muted">Версия: 1.2.1</span>
+        <span class="muted">Версия: 1.3.0</span>
       </div>
       <div class="footer-right">
         <span>CPU приложения: <strong id="footer-cpu-app">-</strong></span>
@@ -730,6 +844,26 @@
       </div>
     </div>
   </footer>
+
+  <div id="encode-decode-popup" class="encode-decode-popup hidden">
+    <div class="encode-decode-row">
+      <select id="encode-decode-action">
+        <option value="decode">Декодировать</option>
+        <option value="encode">Кодировать</option>
+      </select>
+      <select id="encode-decode-format">
+        <option value="url">URL</option>
+        <option value="html">HTML</option>
+        <option value="base64">Base64</option>
+        <option value="ascii">ASCII</option>
+        <option value="hex">HEX</option>
+        <option value="octal">Octal</option>
+        <option value="binary">Binary</option>
+        <option value="gzip">Gzip</option>
+      </select>
+    </div>
+    <div class="encode-decode-result" id="encode-decode-result" title="Кликните для копирования"></div>
+  </div>
 
   <script src="/static/footer.js"></script>
   <script src="/static/app.js"></script>
